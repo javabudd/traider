@@ -142,11 +142,11 @@ fred-connector                                           # stdio
 fred-connector --transport streamable-http --port 8766   # HTTP
 ```
 
-Or via Docker (together with whichever backend is active):
+Or via Docker (together with whichever backend is active), from the
+repo root:
 
 ```bash
-cd mcp_servers
-docker compose --env-file ../.env --profile fred up -d
+docker compose --profile fred up -d
 ```
 
 ## Connect your AI CLI

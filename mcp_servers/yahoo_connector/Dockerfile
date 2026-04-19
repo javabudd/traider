@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # Build context is this directory (mcp_servers/yahoo_connector/).
-# From ../docker-compose.yml: `build: { context: ./yahoo_connector }`.
+# From ../../docker-compose.yml: `build: { context: ./mcp_servers/yahoo_connector }`.
 
 FROM condaforge/miniforge3:24.9.0-0
 

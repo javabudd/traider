@@ -18,8 +18,8 @@ here, what doesn't, and how to navigate the per-server docs.
 traider/
 ├── AGENTS.md                 # hub north star (load into your AI CLI)
 ├── README.md                 # this file
+├── docker-compose.yml        # one service per server (optional)
 ├── mcp_servers/
-│   ├── docker-compose.yml        # one service per server (optional)
 │   ├── schwab_connector/         # Schwab Trader API (incl. its Dockerfile)
 │   ├── yahoo_connector/          # Yahoo Finance (no account required)
 │   ├── fred_connector/           # FRED macro data / release calendar
@@ -93,11 +93,14 @@ COMPOSE_PROFILES=schwab,sec-edgar                          # Schwab + EDGAR fili
 COMPOSE_PROFILES=yahoo,factor                              # Yahoo + Fama-French factors
 ```
 
-Then from `mcp_servers/`:
+Then from the repo root:
 
 ```bash
-docker compose --env-file ../.env up -d
+docker compose up -d
 ```
+
+Compose auto-loads `./.env` from the project directory, so no
+`--env-file` flag is needed.
 
 **For host mode (no Docker), there is no profile system** — you just
 `pip install` and launch the binaries you want. Profiles only matter
@@ -150,10 +153,11 @@ The flow is:
 ### Configure credentials
 
 Both run modes read credentials from a `.env` at the repo root
-(gitignored, loaded on startup). Compose also reads it via
-`env_file: ../.env` in `mcp_servers/docker-compose.yml`, and uses
-`COMPOSE_PROFILES` from that file to decide which servers to start
-(see [Selecting which servers to run](#selecting-which-servers-to-run)).
+(gitignored, loaded on startup). Compose auto-loads it from the
+project directory (`./.env`) — no `--env-file` flag needed — and
+uses `COMPOSE_PROFILES` from that file to decide which servers to
+start (see
+[Selecting which servers to run](#selecting-which-servers-to-run)).
 
 Start from the template:
 
@@ -186,8 +190,11 @@ The Yahoo and FOMC-calendar servers need no credentials. Never commit
 ### Run with Docker (recommended)
 
 Each MCP server ships a `Dockerfile` next to its code, and
-`mcp_servers/docker-compose.yml` wires them all together. You skip
-installing conda and the C deps (TA-Lib, …) on your host.
+`docker-compose.yml` at the repo root wires them all together. You
+skip installing conda and the C deps (TA-Lib, …) on your host.
+
+All Docker commands below run from the repo root. Compose auto-loads
+`./.env`, so no `--env-file` flag is required.
 
 **1. Build the image(s)**
 
@@ -196,8 +203,7 @@ all of them is cheap and lets you switch by flipping
 `COMPOSE_PROFILES` without another `build`:
 
 ```bash
-cd mcp_servers
-docker compose --profile schwab --profile yahoo --env-file ../.env build
+docker compose --profile schwab --profile yahoo build
 ```
 
 **2. One-time OAuth (Schwab only)**
@@ -211,8 +217,7 @@ container), so a later `docker compose up` reuses it, and so does the
 host `schwab-connector` CLI if you also use it outside Docker.
 
 ```bash
-docker compose --env-file ../.env run --rm schwab-connector \
-    schwab-connector auth
+docker compose run --rm schwab-connector schwab-connector auth
 ```
 
 You'll paste the Schwab callback URL back into the terminal, same as
@@ -222,7 +227,7 @@ itself — it's a copy-paste from your browser).
 **3. Start the servers**
 
 ```bash
-docker compose --env-file ../.env up -d
+docker compose up -d
 ```
 
 Only the service whose profile matches `COMPOSE_PROFILES` starts. It
@@ -248,10 +253,10 @@ land in `./logs/` on the host.
 **4. Stop / switch / rebuild**
 
 ```bash
-docker compose --env-file ../.env down       # stop whatever's running
-# switch backends: edit COMPOSE_PROFILES in ../.env, then:
-docker compose --env-file ../.env up -d
-docker compose --env-file ../.env build --no-cache   # after Dockerfile changes
+docker compose down       # stop whatever's running
+# switch backends: edit COMPOSE_PROFILES in .env, then:
+docker compose up -d
+docker compose build --no-cache   # after Dockerfile changes
 ```
 
 ### Run on the host (alternative)

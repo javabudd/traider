@@ -116,11 +116,11 @@ treasury-connector                                           # stdio
 treasury-connector --transport streamable-http --port 8772   # HTTP
 ```
 
-Or via Docker (together with whichever backend is active):
+Or via Docker (together with whichever backend is active), from the
+repo root:
 
 ```bash
-cd mcp_servers
-docker compose --env-file ../.env --profile treasury up -d
+docker compose --profile treasury up -d
 ```
 
 Add `treasury` to `COMPOSE_PROFILES` in `.env` to run it as part of

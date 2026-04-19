@@ -31,7 +31,7 @@ TRAIDER_BACKEND=yahoo    # or schwab
 ```
 
 That value is mapped into `COMPOSE_PROFILES` by
-`mcp_servers/docker-compose.yml`, so `docker compose up` only starts
+`docker-compose.yml`, so `docker compose up` only starts
 the service whose profile matches. On the host (no Docker), just run
 `yahoo-connector` *or* `schwab-connector`; don't start both. See the
 root README's "Choosing a market-data backend" section.

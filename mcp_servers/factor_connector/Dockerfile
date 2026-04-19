@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # Build context is this directory (mcp_servers/factor_connector/).
-# From ../docker-compose.yml: `build: { context: ./factor_connector }`.
+# From ../../docker-compose.yml: `build: { context: ./mcp_servers/factor_connector }`.
 
 FROM python:3.13-slim
 

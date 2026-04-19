@@ -106,11 +106,11 @@ factor-connector                                           # stdio
 factor-connector --transport streamable-http --port 8771   # HTTP
 ```
 
-Or via Docker (together with whichever backend is active):
+Or via Docker (together with whichever backend is active), from the
+repo root:
 
 ```bash
-cd mcp_servers
-docker compose --env-file ../.env --profile factor up -d
+docker compose --profile factor up -d
 ```
 
 Add `factor` to `COMPOSE_PROFILES` in `.env` to run it as part of

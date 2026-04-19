@@ -153,11 +153,11 @@ sec-edgar-connector                                           # stdio
 sec-edgar-connector --transport streamable-http --port 8768   # HTTP
 ```
 
-Or via Docker (together with whichever backend is active):
+Or via Docker (together with whichever backend is active), from the
+repo root:
 
 ```bash
-cd mcp_servers
-docker compose --env-file ../.env --profile sec-edgar up -d
+docker compose --profile sec-edgar up -d
 ```
 
 ## Connect your AI CLI

@@ -74,11 +74,11 @@ fed-calendar-connector                                           # stdio
 fed-calendar-connector --transport streamable-http --port 8767   # HTTP
 ```
 
-Or via Docker (alongside whichever market-data backend is active):
+Or via Docker (alongside whichever market-data backend is active),
+from the repo root:
 
 ```bash
-cd mcp_servers
-docker compose --env-file ../.env --profile fed-calendar up -d
+docker compose --profile fed-calendar up -d
 ```
 
 ## Connect your AI CLI
