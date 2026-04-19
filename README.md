@@ -184,15 +184,19 @@ docker compose --env-file ../.env up -d
 Only the service whose profile matches `COMPOSE_PROFILES` starts. It
 exposes its MCP endpoint on:
 
-| Backend             | URL                     |
-|---------------------|-------------------------|
-| `schwab-connector`  | `http://localhost:8765` |
-| `yahoo-connector`   | `http://localhost:8765` |
+| Server                    | URL                     |
+|---------------------------|-------------------------|
+| `schwab-connector`        | `http://localhost:8765` |
+| `yahoo-connector`         | `http://localhost:8765` |
+| `fred-connector`          | `http://localhost:8766` |
+| `fed-calendar-connector`  | `http://localhost:8767` |
 
-Both bind 8765 — that's why only one runs at a time. Wire the URL
-into your AI CLI using the **HTTP** examples in
-[Connect your AI CLI](#connect-your-ai-cli) below. Logs land in
-`./logs/` on the host.
+`schwab-connector` and `yahoo-connector` both bind 8765 — that's why
+only one runs at a time. `fred-connector` and `fed-calendar-connector`
+are additive and come up alongside whichever market-data backend your
+profile selected. Wire each URL into your AI CLI using the **HTTP**
+examples in [Connect your AI CLI](#connect-your-ai-cli) below. Logs
+land in `./logs/` on the host.
 
 **4. Stop / switch / rebuild**
 
