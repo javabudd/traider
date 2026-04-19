@@ -281,18 +281,29 @@ class YahooClient:
     # ----- internals --------------------------------------------------
 
     def _quote_payload(self, symbol: str) -> dict[str, Any]:
+        # We deliberately don't use ``ticker.fast_info``: in current
+        # yfinance it's backed by the same ``Quote`` class as
+        # ``ticker.info``, and its ``.get()`` either returns ``None`` for
+        # keys that aren't property-backed (so ``last_price`` silently
+        # goes missing) or triggers the ``_dividends`` AttributeError
+        # for keys that are (``open`` / ``day_high`` / ...). All fields
+        # come from ``info`` via the safe ``_info_get`` wrapper, which
+        # swallows that bug per-key.
         ticker = yf.Ticker(_yahoo_symbol(symbol))
-        fast = getattr(ticker, "fast_info", {}) or {}
         info: Any = {}
-        # info is the expensive call — only touch it for bid/ask/sizes,
-        # which fast_info doesn't carry.
         try:
             info = ticker.info or {}
         except Exception:
             logger.exception("yfinance .info failed symbol=%s", symbol)
 
-        last = _safe_float(fast.get("last_price"))
-        prev = _safe_float(fast.get("previous_close") or _info_get(info, "previousClose"))
+        last = _safe_float(
+            _info_get(info, "regularMarketPrice")
+            or _info_get(info, "currentPrice")
+        )
+        prev = _safe_float(
+            _info_get(info, "regularMarketPreviousClose")
+            or _info_get(info, "previousClose")
+        )
         bid = _safe_float(_info_get(info, "bid"))
         ask = _safe_float(_info_get(info, "ask"))
 
@@ -303,15 +314,23 @@ class YahooClient:
             "askPrice": ask,
             "bidSize": _safe_int(_info_get(info, "bidSize")),
             "askSize": _safe_int(_info_get(info, "askSize")),
-            "openPrice": _safe_float(fast.get("open") or _info_get(info, "regularMarketOpen")),
-            "highPrice": _safe_float(fast.get("day_high") or _info_get(info, "regularMarketDayHigh")),
-            "lowPrice": _safe_float(fast.get("day_low") or _info_get(info, "regularMarketDayLow")),
+            "openPrice": _safe_float(
+                _info_get(info, "regularMarketOpen") or _info_get(info, "open")
+            ),
+            "highPrice": _safe_float(
+                _info_get(info, "regularMarketDayHigh") or _info_get(info, "dayHigh")
+            ),
+            "lowPrice": _safe_float(
+                _info_get(info, "regularMarketDayLow") or _info_get(info, "dayLow")
+            ),
             "closePrice": prev,
-            "totalVolume": _safe_int(fast.get("last_volume") or _info_get(info, "regularMarketVolume")),
+            "totalVolume": _safe_int(
+                _info_get(info, "regularMarketVolume") or _info_get(info, "volume")
+            ),
             "mark": (bid + ask) / 2.0 if bid and ask else last,
             "marketState": _info_get(info, "marketState"),
-            "exchange": fast.get("exchange") or _info_get(info, "exchange"),
-            "currency": fast.get("currency") or _info_get(info, "currency"),
+            "exchange": _info_get(info, "exchange"),
+            "currency": _info_get(info, "currency"),
         }
         if last is not None and prev:
             payload["netChange"] = last - prev
