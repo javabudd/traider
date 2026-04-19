@@ -19,11 +19,11 @@
 #   COMPOSE_PROFILES=schwab   # uses Schwab (needs developer account)
 #   COMPOSE_PROFILES=yahoo    # uses Yahoo Finance (no account needed)
 #
-# Additive servers (fred-connector, fed-calendar-connector) live on
-# different ports and can run alongside either backend. Combine
-# profiles with a comma:
+# Additive servers (fred-connector, fed-calendar-connector,
+# sec-edgar-connector) live on different ports and can run alongside
+# either backend. Combine profiles with a comma:
 #
-#   COMPOSE_PROFILES=schwab,fred,fed-calendar
+#   COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar
 #
 # Then, from this directory:
 #
@@ -118,4 +118,24 @@ services:
       - ../logs:/app/logs
     ports:
       - "8767:8767"
+    restart: unless-stopped
+
+  # Additive: SEC EDGAR filings, Form 4 insider transactions, 13F
+  # institutional holdings, XBRL company facts. Runs on 8768. No API
+  # key — but SEC requires a descriptive User-Agent with contact
+  # email, configured via SEC_EDGAR_USER_AGENT in ../.env. The client
+  # refuses to start without it.
+  sec-edgar-connector:
+    profiles: ["sec-edgar"]
+    build:
+      context: ./sec_edgar_connector
+    image: traider/sec-edgar-connector:latest
+    env_file:
+      - ../.env
+    environment:
+      SEC_EDGAR_CONNECTOR_LOG: /app/logs/sec-edgar-connector.log
+    volumes:
+      - ../logs:/app/logs
+    ports:
+      - "8768:8768"
     restart: unless-stopped

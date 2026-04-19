@@ -23,7 +23,8 @@ traider/
 │   ├── schwab_connector/         # Schwab Trader API (incl. its Dockerfile)
 │   ├── yahoo_connector/          # Yahoo Finance (no account required)
 │   ├── fred_connector/           # FRED macro data / release calendar
-│   └── fed_calendar_connector/   # FOMC meeting calendar (primary source)
+│   ├── fed_calendar_connector/   # FOMC meeting calendar (primary source)
+│   └── sec_edgar_connector/      # SEC EDGAR filings, insiders, 13F, XBRL
 └── logs/                     # per-server runtime logs (cwd-relative)
 ```
 
@@ -38,16 +39,18 @@ its own `README.md`, `AGENTS.md`, and `pyproject.toml`.
 | [`yahoo_connector`](mcp_servers/yahoo_connector)               | Same tool surface as `schwab_connector`, backed by Yahoo Finance (no account). Accounts/market-hours tools raise — Yahoo has no brokerage or authoritative session data. Option chains are delayed and omit Greeks. | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
 | [`fred_connector`](mcp_servers/fred_connector)                 | Macro from FRED: economic-release calendar (CPI, NFP, GDP, PCE, retail sales, JOLTS, …), series metadata, and observation time-series. Additive — runs alongside either market-data backend on port 8766. | [README](mcp_servers/fred_connector/README.md) · [AGENTS](mcp_servers/fred_connector/AGENTS.md) |
 | [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates + SEP / press-conference flags, scraped directly from federalreserve.gov (primary source). Additive — port 8767. | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
+| [`sec_edgar_connector`](mcp_servers/sec_edgar_connector)       | SEC EDGAR primary-source filings (10-K, 10-Q, 8-K, 20-F, …), Form 4 insider transactions, 13F institutional holdings, and XBRL company facts (per-company + cross-sectional frames). Additive — port 8768. | [README](mcp_servers/sec_edgar_connector/README.md) · [AGENTS](mcp_servers/sec_edgar_connector/AGENTS.md) |
 
 `schwab_connector` and `yahoo_connector` are **mutually exclusive
 alternatives**. Pick one per hub install — see
 [Choosing a market-data backend](#choosing-a-market-data-backend) below.
 
-`fred_connector` and `fed_calendar_connector` are **additive** — they
-expose different tool names and bind different ports, so they run
-alongside whichever market-data backend you picked. Enable them via
-`COMPOSE_PROFILES` (e.g. `COMPOSE_PROFILES=yahoo,fred,fed-calendar`)
-for Docker, or just run the binaries for host mode.
+`fred_connector`, `fed_calendar_connector`, and `sec_edgar_connector`
+are **additive** — they expose different tool names and bind
+different ports, so they run alongside whichever market-data backend
+you picked. Enable them via `COMPOSE_PROFILES` (e.g.
+`COMPOSE_PROFILES=yahoo,fred,fed-calendar,sec-edgar`) for Docker, or
+just run the binaries for host mode.
 
 More servers (other brokers, data vendors, news/sentiment, on-chain,
 research tools) will be added over time. The pattern stays the same:
@@ -191,6 +194,7 @@ exposes its MCP endpoint on:
 | `yahoo-connector`         | `http://localhost:8765` |
 | `fred-connector`          | `http://localhost:8766` |
 | `fed-calendar-connector`  | `http://localhost:8767` |
+| `sec-edgar-connector`     | `http://localhost:8768` |
 
 `schwab-connector` and `yahoo-connector` both bind 8765 — that's why
 only one runs at a time. `fred-connector` and `fed-calendar-connector`

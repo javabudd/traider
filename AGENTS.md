@@ -72,8 +72,11 @@ traider/
 │   ├── fred_connector/          # FRED (St. Louis Fed) macro data:
 │   │                            #   release calendar, series,
 │   │                            #   metadata
-│   └── fed_calendar_connector/  # FOMC meeting dates scraped from
-│                                #   federalreserve.gov (primary source)
+│   ├── fed_calendar_connector/  # FOMC meeting dates scraped from
+│   │                            #   federalreserve.gov (primary source)
+│   └── sec_edgar_connector/     # SEC EDGAR: filings, Form 4 insider
+│                                #   transactions, 13F holdings, XBRL
+│                                #   company facts
 └── logs/                     # runtime logs (cwd-relative per server)
 ```
 
@@ -155,6 +158,7 @@ servers can have incompatible deps without blocking each other.
 | [`yahoo_connector`](mcp_servers/yahoo_connector)               | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
 | [`fred_connector`](mcp_servers/fred_connector)                 | FRED (St. Louis Fed): economic-release calendar, series metadata, observation time-series (CPI, NFP, GDP, PCE, …) | [README](mcp_servers/fred_connector/README.md) · [AGENTS](mcp_servers/fred_connector/AGENTS.md) |
 | [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source) | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
+| [`sec_edgar_connector`](mcp_servers/sec_edgar_connector)       | SEC EDGAR: company filings (10-K/10-Q/8-K), Form 4 insider transactions, 13F institutional holdings, XBRL company facts and cross-sectional frames | [README](mcp_servers/sec_edgar_connector/README.md) · [AGENTS](mcp_servers/sec_edgar_connector/AGENTS.md) |
 
 **Market-data backends are mutually exclusive.** `schwab_connector`
 and `yahoo_connector` expose identical tool names and both bind port
@@ -167,11 +171,13 @@ work around the gap — see the README's
 [Choosing a market-data backend](../README.md#choosing-a-market-data-backend)
 section for the full capability matrix.
 
-**`fred_connector` and `fed_calendar_connector` are additive.** They
-expose different tool names, bind different ports (8766 / 8767), and
-run alongside either market-data backend. When a question has a macro
-dimension (release calendar, FOMC timing, long-run macro series),
-reach for these even if the primary ask is about an equity — that's
-the "don't be a passive router" rule from the top of this document.
+**`fred_connector`, `fed_calendar_connector`, and
+`sec_edgar_connector` are additive.** They expose different tool
+names, bind different ports (8766 / 8767 / 8768), and run alongside
+either market-data backend. When a question has a macro dimension
+(release calendar, FOMC timing, long-run macro series) or a
+fundamentals / filings / insider / 13F dimension, reach for these
+even if the primary ask is about an equity — that's the "don't be a
+passive router" rule from the top of this document.
 
 Add new rows here as servers land.
