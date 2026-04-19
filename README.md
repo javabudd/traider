@@ -45,18 +45,18 @@ Schwab connector.
 
 ### 1. Conda env (shared across all servers)
 
-All Python in this repo uses a conda env named `tos`, pinned to
+All Python in this repo uses a conda env named `traider`, pinned to
 Python 3.13:
 
 ```bash
-conda create -n tos python=3.13
-conda activate tos
+conda create -n traider python=3.13
+conda activate traider
 ```
 
 ### 2. Install the server(s) you want
 
 ```bash
-conda activate tos
+conda activate traider
 pip install -e ./mcp_servers/schwab_connector
 ```
 

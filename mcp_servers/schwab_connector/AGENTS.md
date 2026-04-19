@@ -74,16 +74,16 @@ browser flow the user runs themselves.
 
 ## Running / developing
 
-**All Python commands for this server run inside the `tos` conda
+**All Python commands for this server run inside the `traider` conda
 environment.** Activate it before running anything — `pip`,
 `python`, `schwab-connector`, test runners, one-off REPLs, everything.
-The env is always named `tos` (Python 3.13); see `README.md` for
+The env is always named `traider` (Python 3.13); see `README.md` for
 creation instructions. If you see an `ImportError` or
 `command not found`, the first thing to check is whether the env is
 active.
 
 ```bash
-conda activate tos
+conda activate traider
 
 # from the repo root:
 pip install -e ./mcp_servers/schwab_connector

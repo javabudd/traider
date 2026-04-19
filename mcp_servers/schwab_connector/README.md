@@ -330,13 +330,13 @@ Miniconda works fine too if you already have it —
 Restart your shell (or `source ~/.bashrc` / `source ~/.zshrc`) so
 `conda` is on your PATH.
 
-### 2. Create the `tos` environment
+### 2. Create the `traider` environment
 
-The project always uses an env named `tos`, pinned to Python 3.13:
+The project always uses an env named `traider`, pinned to Python 3.13:
 
 ```bash
-conda create -n tos python=3.13
-conda activate tos
+conda create -n traider python=3.13
+conda activate traider
 ```
 
 Every subsequent command in this repo (including `pip install`,
@@ -347,7 +347,7 @@ Every subsequent command in this repo (including `pip install`,
 From the `traider` repo root:
 
 ```bash
-conda activate tos
+conda activate traider
 pip install -e ./mcp_servers/schwab_connector
 ```
 
