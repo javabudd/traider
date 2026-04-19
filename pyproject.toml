@@ -7,6 +7,8 @@ dependencies = [
     "mcp>=1.0.0",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "numpy>=1.26",
+    "TA-Lib>=0.4.28",
 ]
 
 [project.scripts]

@@ -6,9 +6,10 @@ Guidance for AI coding agents working in this repo.
 
 `tos-connector` (name kept for continuity — it no longer talks to TOS)
 is a read-only bridge between Claude (via MCP) and the **Schwab Trader
-API**. It exposes quote lookups and historical OHLCV candles as MCP
-tools so Claude can call them like any other tool. Pure Python over
-HTTP — cross-platform, no COM, no desktop app required.
+API**. It exposes quote lookups, historical OHLCV candles, and TA-Lib
+technical-analysis indicators over those candles as MCP tools so
+Claude can call them like any other tool. Pure Python over HTTP —
+cross-platform, no COM, no desktop app required.
 
 The user-facing tool surface (names, arguments, valid parameter
 combinations) is documented in [README.md](README.md) under "What this
@@ -48,8 +49,10 @@ src/tos_connector/
   __main__.py       # dispatches "auth" subcommand vs. server
   schwab_client.py  # OAuth-authenticated HTTP client
   auth.py           # interactive authorization-code flow
-  server.py         # FastMCP server: get_quote / get_quotes / get_price_history
-pyproject.toml      # deps: mcp, httpx, python-dotenv
+  ta.py             # TA-Lib indicator runner over candle lists
+  server.py         # FastMCP server: get_quote / get_quotes /
+                    #   get_price_history / run_technical_analysis
+pyproject.toml      # deps: mcp, httpx, python-dotenv, numpy, TA-Lib
 ```
 
 ## Don't start the MCP server yourself
@@ -131,6 +134,21 @@ Rotation: 5 MB × 3 backups.
 - **Candle timestamps are epoch ms UTC.** When formatting for display
   or computing session boundaries, remember to convert to the right
   tz (Schwab intraday data is US equities — `America/New_York`).
+- **TA-Lib is a C dep.** `pip install TA-Lib` needs the native
+  library present first (`conda install -c conda-forge ta-lib`,
+  `brew install ta-lib`, or the distro package). If the wrapper
+  imports but returns garbage, check that the C lib version matches
+  what the wheel was built against. Don't silently fall back to a
+  pure-Python reimplementation — the indicator outputs won't match
+  what users expect from TA-Lib.
+- **TA-Lib warmup NaNs.** Indicators need history before producing a
+  value (SMA(20) returns NaN for the first 19 points). `ta.py`
+  converts those to JSON `null`; don't strip them — the positions
+  have to stay aligned with `datetime`.
+- **Series size.** `run_technical_analysis` returns one value per
+  candle per indicator by default. A year of 1-minute bars × several
+  indicators can blow up the response. Push callers toward `tail` or
+  a coarser frequency when they don't actually need the full history.
 
 ## What not to do
 

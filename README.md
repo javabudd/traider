@@ -6,7 +6,7 @@ watch out for.
 
 ## What this MCP server can do
 
-Once the server is running and Claude is connected, Claude gets three
+Once the server is running and Claude is connected, Claude gets four
 tools. All are **read-only** — no orders, no alerts, no writes.
 
 ### `get_quote(symbol, field="LAST")`
@@ -71,6 +71,65 @@ You can also pass `start_date` / `end_date` as epoch milliseconds —
 they override `period` when set. `need_extended_hours_data=True`
 includes pre/post-market candles; `need_previous_close=True` adds the
 prior session's close to the response.
+
+### `run_technical_analysis(symbol, indicators, ...)`
+
+Runs one or more [TA-Lib](https://ta-lib.org/) indicators over the
+OHLCV candles for a symbol. Price-history parameters (`period_type`,
+`period`, `frequency_type`, `frequency`, `start_date`, `end_date`,
+`need_extended_hours_data`) behave exactly like `get_price_history`,
+so the same valid-combination matrix applies.
+
+- `indicators` — list of spec dicts. Each dict **must** have `name`
+  (a TA-Lib function name; case-insensitive). Any other keys are
+  forwarded to TA-Lib as keyword arguments. Use `label` to rename
+  the output entry if you want the same indicator with different
+  params (e.g. SMA_20 *and* SMA_50 in one call).
+- `tail` — optional int. Trim each returned series (and the matching
+  `datetime` entries) to the last N points. Leave unset for the full
+  aligned history.
+
+```json
+{
+  "symbol": "SPY",
+  "indicators": [
+    {"name": "SMA", "label": "SMA_20", "timeperiod": 20},
+    {"name": "SMA", "label": "SMA_50", "timeperiod": 50},
+    {"name": "RSI", "timeperiod": 14},
+    {"name": "MACD", "fastperiod": 12, "slowperiod": 26, "signalperiod": 9},
+    {"name": "BBANDS", "timeperiod": 20, "nbdevup": 2, "nbdevdn": 2}
+  ],
+  "tail": 5
+}
+```
+
+Response shape:
+
+```json
+{
+  "symbol": "SPY",
+  "datetime": [1712275200000, 1712361600000, "..."],
+  "indicators": {
+    "SMA_20": [517.2, 517.8, "..."],
+    "SMA_50": [510.4, 510.9, "..."],
+    "RSI": [61.2, 58.7, "..."],
+    "MACD": {"macd": [...], "macdsignal": [...], "macdhist": [...]},
+    "BBANDS": {"upperband": [...], "middleband": [...], "lowerband": [...]}
+  }
+}
+```
+
+Warm-up slots at the start of a series are `null` (TA-Lib NaN).
+Multi-output indicators (MACD, BBANDS, STOCH, …) come back as a dict
+keyed by TA-Lib's output names. Any TA-Lib function works — common
+picks: `SMA`, `EMA`, `WMA`, `RSI`, `MACD`, `BBANDS`, `ATR`, `ADX`,
+`STOCH`, `STOCHRSI`, `OBV`, `CCI`, `MFI`, `AROON`.
+
+> **Install note.** TA-Lib is a C library with a Python wrapper. On
+> conda: `conda install -c conda-forge ta-lib`. On other systems,
+> install the C library first (Homebrew: `brew install ta-lib`; Debian:
+> `apt install libta-lib0 libta-lib-dev`) and then `pip install
+> TA-Lib` picks it up.
 
 ### Things worth knowing
 

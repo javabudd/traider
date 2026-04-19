@@ -13,6 +13,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .schwab_client import SchwabClient
+from .ta import run_indicators
 
 logger = logging.getLogger("tos_connector")
 
@@ -144,6 +145,79 @@ def get_price_history(
         symbol, len(candles), result.get("empty"),
     )
     return result
+
+
+@mcp.tool()
+def run_technical_analysis(
+    symbol: str,
+    indicators: list[dict[str, Any]],
+    period_type: str = "year",
+    period: int = 1,
+    frequency_type: str = "daily",
+    frequency: int = 1,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    need_extended_hours_data: bool = False,
+    tail: int | None = None,
+) -> dict[str, Any]:
+    """Run TA-Lib indicators on historical candles for one symbol.
+
+    Fetches OHLCV candles with the same parameters as
+    ``get_price_history`` (see that tool for valid period/frequency
+    combinations), then computes each requested TA-Lib indicator and
+    returns the results aligned to the candle timestamps.
+
+    Args:
+        symbol: Ticker (equities, futures, or 21-char OSI option).
+        indicators: List of indicator spec dicts. Each must include
+            ``name`` (a TA-Lib function name, e.g. ``"SMA"``,
+            ``"EMA"``, ``"RSI"``, ``"MACD"``, ``"BBANDS"``, ``"ATR"``,
+            ``"STOCH"``, ``"ADX"``, ``"OBV"``). Any other keys are
+            forwarded as kwargs to TA-Lib (e.g.
+            ``{"name": "SMA", "timeperiod": 20}``,
+            ``{"name": "MACD", "fastperiod": 12, "slowperiod": 26,
+            "signalperiod": 9}``). Optional ``label`` renames the
+            output key so the same indicator can be requested with
+            different parameters (e.g. SMA_20 and SMA_50).
+        period_type, period, frequency_type, frequency, start_date,
+        end_date, need_extended_hours_data: forwarded to
+            ``get_price_history``.
+        tail: If set, return only the last N points of each series
+            (and the matching ``datetime`` entries). Useful to keep
+            responses small when you only need recent readings.
+
+    Returns:
+        ``{"symbol": ..., "datetime": [epoch_ms, ...],
+        "indicators": {label: series}}``. ``series`` is either a list
+        (single-output indicators) or a dict of named sub-series
+        (multi-output indicators like MACD or BBANDS). Warm-up slots
+        at the start of a series are ``null`` (TA-Lib NaN).
+    """
+    logger.info(
+        "run_technical_analysis symbol=%s indicators=%s tail=%s",
+        symbol, [i.get("name") for i in indicators], tail,
+    )
+    try:
+        history = _get_client().get_price_history(
+            symbol,
+            period_type=period_type,
+            period=period,
+            frequency_type=frequency_type,
+            frequency=frequency,
+            start_date=start_date,
+            end_date=end_date,
+            need_extended_hours_data=need_extended_hours_data,
+        )
+        candles = history.get("candles", [])
+        result = run_indicators(candles, indicators, tail=tail)
+    except Exception:
+        logger.exception("run_technical_analysis failed symbol=%s", symbol)
+        raise
+    logger.info(
+        "run_technical_analysis result symbol=%s candles=%d labels=%s",
+        symbol, len(candles), list(result["indicators"].keys()),
+    )
+    return {"symbol": symbol, **result}
 
 
 def _configure_logging(log_file: Path) -> None:
