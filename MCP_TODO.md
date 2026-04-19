@@ -24,10 +24,15 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   tier has earnings calendar + estimates), Zacks RSS, Nasdaq Data
   Link. Likely needs a paid tier for quality estimates — flag trade-
   offs before picking.
-- [ ] **news_connector** — headline / event feed for catalyst
-  tracking. Candidates: Benzinga News API, NewsAPI, Tiingo News, or a
-  curated RSS aggregator. Pick one primary source per ticker/topic;
-  do not blend providers silently.
+- [x] **news_connector** — shipped on port 8770. Wraps Massive's
+  `/v2/reference/news` (ticker-scoped headlines with publisher
+  metadata and per-article sentiment insights). Primary source:
+  `api.massive.com`. Auth: `MASSIVE_API_KEY` as `apiKey` query param.
+  Rate limits propagate as `MassiveError` (no silent retries).
+  Intentionally narrow: Massive's quote / aggregate endpoints are
+  *not* wrapped — quotes stay on the market-data backends. See
+  [mcp_servers/news_connector/AGENTS.md](mcp_servers/news_connector/AGENTS.md).
+  Sentiment is Massive's model output; quote it with attribution.
 
 ## Tier 2 — macro completion
 
@@ -102,7 +107,7 @@ simple. Current + planned assignments:
 | 8767 | fed-calendar               | shipped |
 | 8768 | sec-edgar                  | shipped |
 | 8769 | earnings                   | planned |
-| 8770 | news                       | planned |
+| 8770 | news                       | shipped |
 | 8771 | factor                     | shipped |
 | 8772 | treasury                   | shipped |
 | …    | …                          | …       |

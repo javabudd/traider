@@ -24,7 +24,7 @@
 # different ports and can run alongside either backend. Combine
 # profiles with a comma:
 #
-#   COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar,factor,treasury
+#   COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 #
 # Then, from the repo root (where this file lives):
 #
@@ -166,6 +166,24 @@ services:
       - ${HOME}/.cache/traider-factor-connector:/cache
     ports:
       - "8771:8771"
+    restart: unless-stopped
+
+  # Additive: Massive news API — ticker-scoped headlines with
+  # publisher metadata and per-article sentiment. Runs on 8770.
+  # Needs MASSIVE_API_KEY in ./.env (register at massive.com).
+  news-connector:
+    profiles: ["news"]
+    build:
+      context: ./mcp_servers/news_connector
+    image: traider/news-connector:latest
+    env_file:
+      - ./.env
+    environment:
+      NEWS_CONNECTOR_LOG: /app/logs/news-connector.log
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8770:8770"
     restart: unless-stopped
 
   # Additive: US Treasury Fiscal Data — auction results, Daily Treasury

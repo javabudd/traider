@@ -62,10 +62,10 @@ framing.
 
 | Question shape | Minimum tools to consult |
 |---|---|
-| *"Should I buy / sell / hold X?"* | quote + price history + TA (market-data backend), recent filings and insider activity (`sec_edgar`), factor exposure (`factor`), upcoming catalysts (`fed_calendar`, `fred` release schedule), existing position + correlation to book (`schwab`, if account-linked) |
+| *"Should I buy / sell / hold X?"* | quote + price history + TA (market-data backend), recent filings and insider activity (`sec_edgar`), factor exposure (`factor`), recent headlines + sentiment (`news`), upcoming catalysts (`fed_calendar`, `fred` release schedule), existing position + correlation to book (`schwab`, if account-linked) |
 | *"How is my portfolio doing?"* (Schwab backend) | `get_accounts`, per-position returns/volatility, correlation matrix across holdings, benchmark comparison, factor exposure of the book |
 | *"What's the macro setup right now?"* | upcoming high-impact releases (`fred`), next FOMC (`fed_calendar`), recent auction demand + TGA cash (`treasury`), yield curve (`fred` `DGS*`) |
-| *"Explain this move in X."* | price history around the move (market-data), 8-Ks / filings in the window (`sec_edgar`), sector / factor returns same window (`factor`), any macro release that day (`fred`) |
+| *"Explain this move in X."* | price history around the move (market-data), 8-Ks / filings in the window (`sec_edgar`), headlines + sentiment in the window (`news`), sector / factor returns same window (`factor`), any macro release that day (`fred`) |
 | *"Is X overvalued / undervalued?"* | XBRL company facts (`sec_edgar`), industry portfolio returns (`factor`), price history + relative strength (market-data) |
 
 If the question doesn't fit any of these cleanly, that's a cue to ask
@@ -126,9 +126,11 @@ traider/
 │   ├── factor_connector/        # Ken French Data Library: Fama-French
 │   │                            #   factors, momentum, industry
 │   │                            #   portfolios (disk-cached)
-│   └── treasury_connector/      # US Treasury Fiscal Data: auction
-│                                #   results, Daily Treasury Statement
-│                                #   (TGA), debt-to-the-penny
+│   ├── treasury_connector/      # US Treasury Fiscal Data: auction
+│   │                            #   results, Daily Treasury Statement
+│   │                            #   (TGA), debt-to-the-penny
+│   └── news_connector/          # Massive news API: ticker-scoped
+│                                #   headlines + sentiment insights
 └── logs/                     # runtime logs (cwd-relative per server)
 ```
 
@@ -221,6 +223,7 @@ servers can have incompatible deps without blocking each other.
 | [`sec_edgar_connector`](mcp_servers/sec_edgar_connector)       | SEC EDGAR: company filings (10-K/10-Q/8-K), Form 4 insider transactions, 13F institutional holdings, XBRL company facts and cross-sectional frames | [README](mcp_servers/sec_edgar_connector/README.md) · [AGENTS](mcp_servers/sec_edgar_connector/AGENTS.md) |
 | [`factor_connector`](mcp_servers/factor_connector)             | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, and 5–49-industry portfolios (monthly + daily). Disk-cached, no credentials | [README](mcp_servers/factor_connector/README.md) · [AGENTS](mcp_servers/factor_connector/AGENTS.md) |
 | [`treasury_connector`](mcp_servers/treasury_connector)         | US Treasury Fiscal Data: securities auction results (bid-to-cover, dealer takedown, stop-out yield), Daily Treasury Statement (TGA + cash flows), debt-to-the-penny. No credentials. Yield curve routes to `fred_connector` | [README](mcp_servers/treasury_connector/README.md) · [AGENTS](mcp_servers/treasury_connector/AGENTS.md) |
+| [`news_connector`](mcp_servers/news_connector)                 | Massive news API: ticker-scoped headlines with publisher metadata and per-article sentiment insights. Needs `MASSIVE_API_KEY`. Wraps one endpoint (`/v2/reference/news`); quotes/aggregates stay on the market-data backends | [README](mcp_servers/news_connector/README.md) · [AGENTS](mcp_servers/news_connector/AGENTS.md) |
 
 **Market-data backends are mutually exclusive.** `schwab_connector`
 and `yahoo_connector` expose identical tool names and both bind port
@@ -234,16 +237,18 @@ work around the gap — see the README's
 section for the full capability matrix.
 
 **`fred_connector`, `fed_calendar_connector`, `sec_edgar_connector`,
-`factor_connector`, and `treasury_connector` are additive.** They
-expose different tool names, bind different ports (8766 / 8767 / 8768
-/ 8771 / 8772), and run alongside either market-data backend. When a
-question has a macro dimension (release calendar, FOMC timing, long-
-run macro series), a fundamentals / filings / insider / 13F dimension,
-a factor-model dimension (Fama-French exposures, industry-level
-context, factor attribution), or a Treasury-primary-source dimension
-(auction demand, TGA cash flows, daily debt outstanding), reach for
-these even if the primary ask is about an equity — that's the "don't
-be a passive router" rule from the top of this document.
+`factor_connector`, `treasury_connector`, and `news_connector` are
+additive.** They expose different tool names, bind different ports
+(8766 / 8767 / 8768 / 8770 / 8771 / 8772), and run alongside either
+market-data backend. When a question has a macro dimension (release
+calendar, FOMC timing, long-run macro series), a fundamentals /
+filings / insider / 13F dimension, a factor-model dimension
+(Fama-French exposures, industry-level context, factor attribution),
+a Treasury-primary-source dimension (auction demand, TGA cash flows,
+daily debt outstanding), or a catalyst / news dimension (recent
+headlines, sentiment around a move), reach for these even if the
+primary ask is about an equity — that's the "don't be a passive
+router" rule from the top of this document.
 
 **Routing note — yield curve lives on `fred_connector`.** FRED
 mirrors the H.15 Daily Treasury Yield Curve in full (`DGS1MO` …
