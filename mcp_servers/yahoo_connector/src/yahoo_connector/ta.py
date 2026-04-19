@@ -70,11 +70,11 @@ def _run_one(
     if isinstance(raw, tuple) or len(output_names) > 1:
         arrays = raw if isinstance(raw, tuple) else (raw,)
         value: Any = {
-            out_name: _nan_to_none(arr.tolist())
+            out_name: _nan_to_none(arr)
             for out_name, arr in zip(output_names, arrays)
         }
     else:
-        value = _nan_to_none(raw.tolist())
+        value = _nan_to_none(raw)
     return label, value
 
 

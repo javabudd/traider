@@ -283,7 +283,7 @@ class YahooClient:
     def _quote_payload(self, symbol: str) -> dict[str, Any]:
         ticker = yf.Ticker(_yahoo_symbol(symbol))
         fast = getattr(ticker, "fast_info", {}) or {}
-        info = {}
+        info: Any = {}
         # info is the expensive call — only touch it for bid/ask/sizes,
         # which fast_info doesn't carry.
         try:
@@ -292,26 +292,26 @@ class YahooClient:
             logger.exception("yfinance .info failed symbol=%s", symbol)
 
         last = _safe_float(fast.get("last_price"))
-        prev = _safe_float(fast.get("previous_close") or info.get("previousClose"))
-        bid = _safe_float(info.get("bid"))
-        ask = _safe_float(info.get("ask"))
+        prev = _safe_float(fast.get("previous_close") or _info_get(info, "previousClose"))
+        bid = _safe_float(_info_get(info, "bid"))
+        ask = _safe_float(_info_get(info, "ask"))
 
         payload: dict[str, Any] = {
             "symbol": symbol,
             "lastPrice": last,
             "bidPrice": bid,
             "askPrice": ask,
-            "bidSize": _safe_int(info.get("bidSize")),
-            "askSize": _safe_int(info.get("askSize")),
-            "openPrice": _safe_float(fast.get("open") or info.get("regularMarketOpen")),
-            "highPrice": _safe_float(fast.get("day_high") or info.get("regularMarketDayHigh")),
-            "lowPrice": _safe_float(fast.get("day_low") or info.get("regularMarketDayLow")),
+            "bidSize": _safe_int(_info_get(info, "bidSize")),
+            "askSize": _safe_int(_info_get(info, "askSize")),
+            "openPrice": _safe_float(fast.get("open") or _info_get(info, "regularMarketOpen")),
+            "highPrice": _safe_float(fast.get("day_high") or _info_get(info, "regularMarketDayHigh")),
+            "lowPrice": _safe_float(fast.get("day_low") or _info_get(info, "regularMarketDayLow")),
             "closePrice": prev,
-            "totalVolume": _safe_int(fast.get("last_volume") or info.get("regularMarketVolume")),
+            "totalVolume": _safe_int(fast.get("last_volume") or _info_get(info, "regularMarketVolume")),
             "mark": (bid + ask) / 2.0 if bid and ask else last,
-            "marketState": info.get("marketState"),
-            "exchange": fast.get("exchange") or info.get("exchange"),
-            "currency": fast.get("currency") or info.get("currency"),
+            "marketState": _info_get(info, "marketState"),
+            "exchange": fast.get("exchange") or _info_get(info, "exchange"),
+            "currency": fast.get("currency") or _info_get(info, "currency"),
         }
         if last is not None and prev:
             payload["netChange"] = last - prev
@@ -328,6 +328,18 @@ class YahooClient:
 def _yahoo_symbol(symbol: str) -> str:
     """Map Schwab-style symbols to Yahoo's conventions where they differ."""
     return _INDEX_SYMBOL_ALIASES.get(symbol.upper(), symbol)
+
+
+def _info_get(info: Any, key: str) -> Any:
+    """yfinance's ``Ticker.info`` is a lazy ``InfoDictWrapper`` — resolving
+    a key can trigger network calls and internal library bugs (e.g.
+    ``regularMarketOpen`` hits a codepath that has raised
+    ``AttributeError: 'PriceHistory' object has no attribute
+    '_dividends'``). Treat any failure as a missing field."""
+    try:
+        return info.get(key)
+    except Exception:
+        return None
 
 
 def _safe_float(v: Any) -> float | None:
