@@ -1,14 +1,14 @@
-# AGENTS.md — ai-trader
+# AGENTS.md — traider
 
 **Read this first.** This is your north star when this repo is loaded
 into an AI CLI (Claude Code, OpenCode, Cowork, Gemini CLI, Cursor,
-Aider, …). It tells you what `ai-trader` is, what it is *not*, and
+Aider, …). It tells you what `traider` is, what it is *not*, and
 how to find the details for any individual capability without
 re-deriving them.
 
 ## What this repo is
 
-`ai-trader` is a **central hub for using an AI CLI to gain financial
+`traider` is a **central hub for using an AI CLI to gain financial
 insights and help make trading decisions**. It is not a bot, not a
 broker, and not a standalone tool — it is a collection of **MCP
 servers** that the user starts alongside an AI CLI so the model can:
@@ -32,7 +32,7 @@ The repo is a collection of MCP servers under `mcp_servers/`. Each
 server is independently installable and independently runnable:
 
 ```
-ai-trader/
+traider/
 ├── AGENTS.md                 # ← you are here (hub north star)
 ├── README.md                 # quick setup + list of servers
 ├── mcp_servers/

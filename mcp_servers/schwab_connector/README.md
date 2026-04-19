@@ -1,7 +1,7 @@
 # schwab-connector
 
 Read-only Schwab Trader API bridge exposed as an MCP server. One of the
-MCP servers bundled in the [`ai-trader`](../../README.md) hub (see the
+MCP servers bundled in the [`traider`](../../README.md) hub (see the
 root [AGENTS.md](../../AGENTS.md) for how the hub is organized).
 See [AGENTS.md](AGENTS.md) in this directory for how this server's
 code is organized and what to watch out for.
@@ -344,7 +344,7 @@ Every subsequent command in this repo (including `pip install`,
 
 ### 3. Install the package
 
-From the `ai-trader` repo root:
+From the `traider` repo root:
 
 ```bash
 conda activate tos

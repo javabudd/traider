@@ -1,7 +1,7 @@
 # AGENTS.md — schwab_connector
 
 Guidance for AI coding agents working on the **Schwab** MCP server
-inside the [`ai-trader`](../../AGENTS.md) hub. If you landed here
+inside the [`traider`](../../AGENTS.md) hub. If you landed here
 without reading the root `AGENTS.md`, read that first — it frames how
 this directory fits into the wider collection of MCP servers.
 

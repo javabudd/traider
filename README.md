@@ -1,10 +1,10 @@
-# ai-trader
+# traider
 
 A hub for using an AI CLI (Claude Code, OpenCode, Cowork, Gemini CLI,
 Cursor, Aider, …) to gain financial insights and help make trading
 decisions.
 
-`ai-trader` itself doesn't trade. It's a **collection of MCP servers**
+`traider` itself doesn't trade. It's a **collection of MCP servers**
 that expose read-only market data, account data, and analytics as
 tools the model can call. You keep every decision; the model fetches,
 compiles, parses, and explains.
@@ -15,7 +15,7 @@ here, what doesn't, and how to navigate the per-server docs.
 ## Layout
 
 ```
-ai-trader/
+traider/
 ├── AGENTS.md                 # hub north star (load into your AI CLI)
 ├── README.md                 # this file
 ├── mcp_servers/
