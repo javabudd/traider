@@ -37,8 +37,11 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
 - [ ] **bea_connector** — BEA direct (GDP components, personal
   income, trade balance). Same rationale as BLS.
 - [ ] **treasury_connector** — Treasury Direct / Fiscal Data API:
-  auction results, debt-to-the-penny, daily Treasury statement, yield
-  curve.
+  auction results (bid-to-cover, high yield, primary dealer takedown,
+  indirect/direct bidder share), Daily Treasury Statement (component-
+  level cash flows, TGA balance), debt-to-the-penny. Yield curve is
+  already covered by FRED (H.15: DGS1MO…DGS30, DFII real yields) — do
+  not duplicate.
 - [ ] **eia_connector** — US Energy Information Administration:
   weekly petroleum status, natural gas storage, electricity. Critical
   for energy-name trades.
