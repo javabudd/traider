@@ -53,6 +53,52 @@ missing context is a failure mode. This is about **analysis depth** —
 it does not relax the read-only rule or take the user out of the loop
 on any decision.
 
+## Common question shapes and the minimum tool set
+
+The "don't be a passive router" rule is only operational if you know
+what context to reach for. These are minimum sets — pull more when the
+question warrants it, and ask the user before guessing at missing
+framing.
+
+| Question shape | Minimum tools to consult |
+|---|---|
+| *"Should I buy / sell / hold X?"* | quote + price history + TA (market-data backend), recent filings and insider activity (`sec_edgar`), factor exposure (`factor`), upcoming catalysts (`fed_calendar`, `fred` release schedule), existing position + correlation to book (`schwab`, if account-linked) |
+| *"How is my portfolio doing?"* (Schwab backend) | `get_accounts`, per-position returns/volatility, correlation matrix across holdings, benchmark comparison, factor exposure of the book |
+| *"What's the macro setup right now?"* | upcoming high-impact releases (`fred`), next FOMC (`fed_calendar`), recent auction demand + TGA cash (`treasury`), yield curve (`fred` `DGS*`) |
+| *"Explain this move in X."* | price history around the move (market-data), 8-Ks / filings in the window (`sec_edgar`), sector / factor returns same window (`factor`), any macro release that day (`fred`) |
+| *"Is X overvalued / undervalued?"* | XBRL company facts (`sec_edgar`), industry portfolio returns (`factor`), price history + relative strength (market-data) |
+
+If the question doesn't fit any of these cleanly, that's a cue to ask
+a clarifying question before pulling data — not to invent a framing.
+
+## How to present findings
+
+Trading decisions hinge on the provenance of numbers. A tidy-looking
+recommendation with unattributed figures is worse than a messier one
+with citations, because the user can't tell what to sanity-check.
+
+- **Cite the tool and timestamp for every number.** `NVDA last
+  $485.12 (yahoo `get_quote`, 2026-04-19 15:32 ET)` is the minimum
+  bar. If a tool returned a window (1y history, trailing-90d
+  correlation, monthly factor returns through March), state the
+  window.
+- **Flag stale or off-hours data.** Pre-market, after-hours, Friday
+  close going into Monday, factor data cached through last month —
+  the user needs to know when a number isn't "right now."
+- **Surface disagreements, don't resolve them silently.** If TA and
+  fundamentals point opposite directions, or the factor model flags
+  risk the price chart doesn't, name the conflict and let the user
+  weigh it. Picking a side without showing your work defeats the
+  point of a human-in-the-loop hub.
+- **Distinguish tool output from your inference.** When you
+  interpret numbers (*"2σ move,"* *"bid-to-cover below recent
+  average,"* *"curve steepening"*), mark it as interpretation.
+  Reserve confident, unqualified claims for values a tool directly
+  returned.
+- **Historical ≠ predictive.** When you cite a beta, correlation,
+  volatility, or regression, state the window and that it describes
+  the past. Don't project it forward without saying so.
+
 ## How the hub is organized
 
 The repo is a collection of MCP servers under `mcp_servers/`. Each
@@ -129,6 +175,14 @@ These apply to **every** MCP server in this repo. Per-server
   substitute a pure-Python reimplementation or a cached/stale value
   and pretend it's equivalent — the downstream decisions depend on
   the numbers being what they claim to be.
+- **No fabricated numbers, ever.** If a tool returns nothing, errors,
+  or is rate-limited, say so and stop. Do not fill in a plausible-
+  looking price, fundamental, ratio, or historical stat from training
+  data, and do not "estimate" a number a tool could have returned
+  exactly. Training-data numbers are stale by construction, and one of
+  them slipping into a recommendation is the worst-case outcome for
+  this repo. The same applies to tickers, CUSIPs, CIKs, and FRED
+  series IDs — look them up, don't guess.
 
 ## Don't start MCP servers yourself
 
