@@ -44,10 +44,39 @@ conda activate tos
 pip install -e .
 ```
 
-### 4. Configure Schwab credentials
+### 4. Register a Schwab developer app
 
-Register an app at <https://developer.schwab.com>. Either export the
-vars directly:
+The connector authenticates as an OAuth app you own on the Schwab
+developer portal. You need to create that app once before anything
+else works.
+
+1. **Create a developer account** at <https://developer.schwab.com>
+   and sign in. Your Schwab brokerage login works here.
+2. **Create a new app** from the Dashboard. You'll be asked for:
+   - **App name** and **description** — free text, shown only to you.
+   - **API products** — select **Accounts and Trading Production**
+     and **Market Data Production**. (The connector is read-only, but
+     the Trader product is what exposes `/marketdata/v1/quotes`.)
+   - **Callback URL** — must be HTTPS and must match
+     `SCHWAB_CALLBACK_URL` exactly, including trailing slash.
+     `https://127.0.0.1` is the simplest choice and is what the auth
+     flow assumes by default.
+3. **Submit for approval.** New apps start in `Approved - Pending`
+   and have to flip to `Ready For Use` before the keys work. This
+   usually takes a few minutes to a couple of days; you can't
+   shortcut it. If `tos-connector auth` returns `invalid_client`,
+   the app is still pending.
+4. **Copy the App Key and Secret** from the app's detail page once it
+   is `Ready For Use`. The key is public-ish (it's the OAuth
+   `client_id`); the secret must be kept private — don't paste it
+   into chat, logs, or anything committed to git.
+5. **Rotating credentials.** If you regenerate the secret in the
+   portal, existing tokens are invalidated — you'll need to re-run
+   `tos-connector auth`.
+
+### 5. Configure Schwab credentials
+
+Either export the vars directly:
 
 ```bash
 export SCHWAB_APP_KEY=...
