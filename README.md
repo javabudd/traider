@@ -93,7 +93,7 @@ SCHWAB_APP_SECRET=...
 SCHWAB_CALLBACK_URL=https://127.0.0.1
 ```
 
-### 5. Authorize once, then run the server
+### 6. Authorize once, then run the server
 
 ```bash
 tos-connector auth             # browser flow, paste redirected URL
