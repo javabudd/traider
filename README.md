@@ -39,32 +39,24 @@ one subdirectory per server, independently installable.
 
 ## Quickstart
 
-You'll install one or more MCP servers, start each in its own
-terminal, and point your AI CLI at them. Each server's own `README.md`
-has the full setup — the steps below are the short path for the
-Schwab connector.
+You'll install or run one or more MCP servers, start each one, and
+point your AI CLI at them. Each server's own `README.md` has the full
+setup — the steps below are the short path for the Schwab connector.
 
-### 1. Conda env (shared across all servers)
+The flow is:
 
-All Python in this repo uses a conda env named `traider`, pinned to
-Python 3.13:
+1. **Configure credentials** (shared by both run modes).
+2. **Run the server(s)** — either with [Docker](#run-with-docker-recommended)
+   (recommended) or [directly on the host](#run-on-the-host-alternative).
+3. **[Wire the server into your AI CLI](#connect-your-ai-cli).**
 
-```bash
-conda create -n traider python=3.13
-conda activate traider
-```
+### Configure credentials
 
-### 2. Install the server(s) you want
+Both run modes read credentials from a `.env` at the repo root
+(gitignored, loaded on startup). Compose also reads it via
+`env_file: ../.env` in `mcp_servers/docker-compose.yml`.
 
-```bash
-conda activate traider
-pip install -e ./mcp_servers/schwab_connector
-```
-
-### 3. Configure credentials
-
-Drop them in a `.env` at the repo root (gitignored, loaded on
-startup). For the Schwab connector, see its
+For the Schwab connector, see its
 [README](mcp_servers/schwab_connector/README.md#5-configure-schwab-credentials)
 for the app-registration walkthrough.
 
@@ -74,48 +66,22 @@ SCHWAB_APP_SECRET=...
 SCHWAB_CALLBACK_URL=https://127.0.0.1
 ```
 
-### 4. One-time auth, then run the server
+Never commit this file or paste its contents into logs or chat.
 
-```bash
-schwab-connector auth    # one-time browser OAuth flow
-schwab-connector         # starts the MCP server on stdio
-```
+### Run with Docker (recommended)
 
-Or over HTTP for remote MCP clients:
+Each MCP server ships a `Dockerfile` next to its code, and
+`mcp_servers/docker-compose.yml` wires them all together. You skip
+installing conda and the C deps (TA-Lib, …) on your host.
 
-```bash
-schwab-connector --transport streamable-http --port 8765
-```
-
-### 5. Wire it into your AI CLI
-
-See [Connect your AI CLI](#connect-your-ai-cli) below for the exact
-command or config block for Claude Code, OpenCode, and Gemini CLI.
-Use the **stdio** form when you run the server on the host like this
-(directly via `schwab-connector`), or the **HTTP** form when you run
-it over `streamable-http` (including the Docker path below).
-
-## Alternative: run with Docker
-
-If you'd rather not install conda and the C deps (TA-Lib, …) on your
-host, each MCP server ships a `Dockerfile` next to its code, and
-`mcp_servers/docker-compose.yml` wires them all together. The images
-use the same `traider` conda env internally, so install paths match
-the non-Docker quickstart.
-
-### 1. Configure credentials
-
-Same as step 3 above — drop a `.env` at the repo root. Compose reads
-it from `mcp_servers/docker-compose.yml` via `env_file: ../.env`.
-
-### 2. Build the images
+**1. Build the images**
 
 ```bash
 cd mcp_servers
 docker compose build
 ```
 
-### 3. One-time OAuth (per server that needs it)
+**2. One-time OAuth (per server that needs it)**
 
 Run the server's auth subcommand interactively. The token file is
 written to `~/.schwab-connector/` on the host (mounted into the
@@ -130,7 +96,7 @@ You'll paste the Schwab callback URL back into the terminal, same as
 the non-Docker flow (the container never has to receive the callback
 itself — it's a copy-paste from your browser).
 
-### 4. Start the servers
+**3. Start the servers**
 
 ```bash
 docker compose up -d
@@ -146,13 +112,51 @@ Wire the URL into your AI CLI using the **HTTP** examples in
 [Connect your AI CLI](#connect-your-ai-cli) below. Logs land in
 `./logs/` on the host.
 
-### 5. Stop / rebuild
+**4. Stop / rebuild**
 
 ```bash
 docker compose down                   # stop everything
 docker compose up -d schwab-connector # start just one server
 docker compose build --no-cache       # after changing a Dockerfile
 ```
+
+### Run on the host (alternative)
+
+If you'd rather run servers directly on your machine — no Docker —
+use a shared conda env.
+
+**1. Create the conda env**
+
+All Python in this repo uses a conda env named `traider`, pinned to
+Python 3.13:
+
+```bash
+conda create -n traider python=3.13
+conda activate traider
+```
+
+**2. Install the server(s) you want**
+
+```bash
+pip install -e ./mcp_servers/schwab_connector
+```
+
+**3. One-time auth, then run the server**
+
+```bash
+schwab-connector auth    # one-time browser OAuth flow
+schwab-connector         # starts the MCP server on stdio
+```
+
+Or over HTTP for remote MCP clients:
+
+```bash
+schwab-connector --transport streamable-http --port 8765
+```
+
+Then see [Connect your AI CLI](#connect-your-ai-cli) — use the
+**stdio** form for a direct host run, or the **HTTP** form when you
+start the server with `--transport streamable-http`.
 
 ## Connect your AI CLI
 
