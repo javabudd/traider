@@ -122,6 +122,15 @@ Rotation: 5 MB × 3 backups.
 - **Sandbox vs production.** The developer portal offers a sandbox
   environment. If you set `SCHWAB_BASE_URL`, make sure it points where
   you intend.
+- **Price history parameter combos.** Schwab's `/pricehistory` endpoint
+  rejects most `periodType` / `frequencyType` / `period` / `frequency`
+  combinations with a terse 400. The valid matrix is in the README.
+  If you're tempted to add client-side validation, don't — the
+  response is specific enough, and the matrix is subject to change on
+  Schwab's side.
+- **Candle timestamps are epoch ms UTC.** When formatting for display
+  or computing session boundaries, remember to convert to the right
+  tz (Schwab intraday data is US equities — `America/New_York`).
 
 ## What not to do
 
