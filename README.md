@@ -42,21 +42,61 @@ its own `README.md`, `AGENTS.md`, and `pyproject.toml`.
 | [`sec_edgar_connector`](mcp_servers/sec_edgar_connector)       | SEC EDGAR primary-source filings (10-K, 10-Q, 8-K, 20-F, …), Form 4 insider transactions, 13F institutional holdings, and XBRL company facts (per-company + cross-sectional frames). Additive — port 8768. | [README](mcp_servers/sec_edgar_connector/README.md) · [AGENTS](mcp_servers/sec_edgar_connector/AGENTS.md) |
 
 `schwab_connector` and `yahoo_connector` are **mutually exclusive
-alternatives**. Pick one per hub install — see
-[Choosing a market-data backend](#choosing-a-market-data-backend) below.
-
-`fred_connector`, `fed_calendar_connector`, and `sec_edgar_connector`
-are **additive** — they expose different tool names and bind
-different ports, so they run alongside whichever market-data backend
-you picked. Enable them via `COMPOSE_PROFILES` (e.g.
-`COMPOSE_PROFILES=yahoo,fred,fed-calendar,sec-edgar`) for Docker, or
-just run the binaries for host mode.
+alternatives**. Every other server is **additive**. Which servers
+actually start is controlled by Docker Compose profiles — see
+[Selecting which servers to run](#selecting-which-servers-to-run)
+below.
 
 More servers (other brokers, data vendors, news/sentiment, on-chain,
 research tools) will be added over time. The pattern stays the same:
 one subdirectory per server, independently installable.
 
-## Choosing a market-data backend
+## Selecting which servers to run
+
+Under Docker, **every MCP server in this hub is gated by its own
+Docker Compose profile**, and you pick which ones start via the
+comma-separated `COMPOSE_PROFILES` variable in `.env`. Services whose
+profile isn't active simply don't launch. If no profile is set,
+nothing starts (and Compose prints the list of available profiles).
+
+| Profile        | Server                    | Port | Kind                | Creds required                  |
+|----------------|---------------------------|------|---------------------|---------------------------------|
+| `schwab`       | `schwab-connector`        | 8765 | Market-data backend | Schwab app key/secret + OAuth   |
+| `yahoo`        | `yahoo-connector`         | 8765 | Market-data backend | None                            |
+| `fred`         | `fred-connector`          | 8766 | Additive (macro)    | `FRED_API_KEY` (free)           |
+| `fed-calendar` | `fed-calendar-connector`  | 8767 | Additive (macro)    | None                            |
+| `sec-edgar`    | `sec-edgar-connector`     | 8768 | Additive (filings)  | `SEC_EDGAR_USER_AGENT` (yours)  |
+
+Rules of thumb:
+
+- **Pick one market-data backend** (`schwab` *or* `yahoo`). They
+  expose the same tool names and both bind 8765, so running both
+  would make the second one fail to start.
+- **Add any mix of additive profiles.** `fred`, `fed-calendar`, and
+  `sec-edgar` expose distinct tool names and distinct ports, so they
+  compose freely with each other and with either market-data backend.
+
+Examples:
+
+```bash
+COMPOSE_PROFILES=schwab                             # just Schwab quotes/accounts
+COMPOSE_PROFILES=yahoo                              # just Yahoo quotes
+COMPOSE_PROFILES=yahoo,fred,fed-calendar,sec-edgar  # Yahoo + full macro + fundamentals
+COMPOSE_PROFILES=schwab,sec-edgar                   # Schwab + EDGAR filings/insiders
+```
+
+Then from `mcp_servers/`:
+
+```bash
+docker compose --env-file ../.env up -d
+```
+
+**For host mode (no Docker), there is no profile system** — you just
+`pip install` and launch the binaries you want. Profiles only matter
+when you're running under Compose. See
+[Run on the host](#run-on-the-host-alternative) for that path.
+
+### Choosing a market-data backend
 
 `schwab_connector` and `yahoo_connector` expose the **same tool names**
 (`get_quote`, `get_price_history`, `run_technical_analysis`,
@@ -75,28 +115,14 @@ the data comes from and what's not available:
 | Data freshness               | Real-time during RTH (Schwab entitlement)   | Typically delayed ~15 min                    |
 | Unofficial endpoint?         | No — stable, paid, documented API           | Yes — `yfinance` scrapes; expect drift       |
 
-**Only one backend runs at a time** — they both bind port 8765. The
-selector is `COMPOSE_PROFILES` in `.env`:
+**Only one backend runs at a time** — they both bind port 8765. Pick
+it by putting exactly one of `schwab` or `yahoo` in
+`COMPOSE_PROFILES` (see
+[Selecting which servers to run](#selecting-which-servers-to-run)
+for the full profile mechanics, including combining with additive
+servers).
 
-```
-COMPOSE_PROFILES=schwab    # or: yahoo
-```
-
-Each compose service is tagged with a matching profile, so
-`docker compose up` only starts the one you picked. If no profile is
-set, nothing starts (Compose prints the list of available profiles).
-
-Copy `.env.dist` to `.env` and edit the value, then run compose with
-`--env-file ../.env` so it picks up the profile:
-
-```bash
-cp .env.dist .env
-# edit .env to set COMPOSE_PROFILES=schwab or yahoo
-cd mcp_servers
-docker compose --env-file ../.env up -d
-```
-
-For host-mode (non-Docker), the backend is simply whichever binary
+For host mode (non-Docker), the backend is simply whichever binary
 you run — `schwab-connector` or `yahoo-connector`. Don't start both
 (same port).
 
@@ -118,8 +144,8 @@ The flow is:
 Both run modes read credentials from a `.env` at the repo root
 (gitignored, loaded on startup). Compose also reads it via
 `env_file: ../.env` in `mcp_servers/docker-compose.yml`, and uses
-`COMPOSE_PROFILES` from that file to decide which backend to start
-(see [Choosing a market-data backend](#choosing-a-market-data-backend)).
+`COMPOSE_PROFILES` from that file to decide which servers to start
+(see [Selecting which servers to run](#selecting-which-servers-to-run)).
 
 Start from the template:
 
@@ -127,21 +153,27 @@ Start from the template:
 cp .env.dist .env
 ```
 
-Then edit:
+Then edit. The file has entries for every server the hub knows about;
+each is only consulted if its profile is in `COMPOSE_PROFILES`:
 
 ```
-# Pick your backend — schwab or yahoo.
-COMPOSE_PROFILES=schwab
+# One market-data backend + any mix of additive servers.
+COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar
 
-# Schwab-only (ignored if COMPOSE_PROFILES=yahoo). See the Schwab
-# connector's README for the app-registration walkthrough.
+# Schwab-only — ignored unless `schwab` is in COMPOSE_PROFILES.
 SCHWAB_APP_KEY=...
 SCHWAB_APP_SECRET=...
 SCHWAB_CALLBACK_URL=https://127.0.0.1
+
+# FRED-only — ignored unless `fred` is in COMPOSE_PROFILES.
+FRED_API_KEY=...
+
+# EDGAR-only — ignored unless `sec-edgar` is in COMPOSE_PROFILES.
+SEC_EDGAR_USER_AGENT=your-name you@example.com
 ```
 
-The Yahoo backend needs no credentials. Never commit `.env` or paste
-its contents into logs or chat.
+The Yahoo and FOMC-calendar servers need no credentials. Never commit
+`.env` or paste its contents into logs or chat.
 
 ### Run with Docker (recommended)
 
