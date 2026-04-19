@@ -89,10 +89,11 @@ schwab-connector --transport streamable-http --port 8765
 
 ### 5. Wire it into your AI CLI
 
-Point your MCP client at the running server (stdio or HTTP). The
-model will then see every tool the server exposes. From there, ask
-questions and let the model chain tools — the per-server README has
-worked examples.
+See [Connect your AI CLI](#connect-your-ai-cli) below for the exact
+command or config block for Claude Code, OpenCode, and Gemini CLI.
+Use the **stdio** form when you run the server on the host like this
+(directly via `schwab-connector`), or the **HTTP** form when you run
+it over `streamable-http` (including the Docker path below).
 
 ## Alternative: run with Docker
 
@@ -141,8 +142,9 @@ Each server exposes its MCP endpoint on a fixed port:
 |---------------------|-------------------------|
 | `schwab-connector`  | `http://localhost:8765` |
 
-Point your AI CLI's MCP client at those URLs (streamable-http
-transport). Logs land in `./logs/` on the host.
+Wire the URL into your AI CLI using the **HTTP** examples in
+[Connect your AI CLI](#connect-your-ai-cli) below. Logs land in
+`./logs/` on the host.
 
 ### 5. Stop / rebuild
 
@@ -151,6 +153,116 @@ docker compose down                   # stop everything
 docker compose up -d schwab-connector # start just one server
 docker compose build --no-cache       # after changing a Dockerfile
 ```
+
+## Connect your AI CLI
+
+Once a server is running — either on the host (stdio) or in Docker
+(HTTP on `localhost:8765/mcp`) — register it with your CLI using one
+of the recipes below. Examples use the Schwab connector; swap the
+name/URL for any other server in the hub.
+
+### Claude Code
+
+`claude mcp add` writes to your Claude config; no JSON editing. Add
+`--scope user` to make it available across all projects, or
+`--scope project` to check it into `.mcp.json` for teammates. Default
+scope (`local`) is this project only.
+
+**Stdio (host install):**
+
+```bash
+claude mcp add --transport stdio schwab-connector -- schwab-connector
+```
+
+The `--` separates `claude mcp add` flags from the command that
+launches the server.
+
+**HTTP (Docker, or any streamable-http server):**
+
+```bash
+claude mcp add --transport http schwab-connector http://localhost:8765/mcp
+```
+
+Use `--header "Authorization: Bearer …"` if the endpoint needs auth
+(the servers in this hub don't).
+
+Verify with `claude mcp list`, then restart the CLI session.
+
+### OpenCode
+
+Edit `opencode.json` in the repo root (project-local) or
+`~/.config/opencode/opencode.json` (user-wide). MCP servers live
+under the top-level `mcp` key.
+
+**Stdio (host install):**
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "schwab-connector": {
+      "type": "local",
+      "command": ["schwab-connector"],
+      "enabled": true
+    }
+  }
+}
+```
+
+**HTTP (Docker, or any streamable-http server):**
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "schwab-connector": {
+      "type": "remote",
+      "url": "http://localhost:8765/mcp",
+      "enabled": true
+    }
+  }
+}
+```
+
+Use `{env:VAR_NAME}` inside `headers` for auth tokens when you need
+them.
+
+### Gemini CLI
+
+Edit `.gemini/settings.json` in the repo root (project) or
+`~/.gemini/settings.json` (user). MCP servers live under
+`mcpServers`.
+
+**Stdio (host install):**
+
+```json
+{
+  "mcpServers": {
+    "schwab-connector": {
+      "command": "schwab-connector"
+    }
+  }
+}
+```
+
+If the server needs env vars injected, use `"env": { "KEY": "$KEY" }`
+— Gemini CLI does **not** auto-load `.env`, so either export the
+vars in your shell first or put the literal values in `env`.
+
+**HTTP (Docker, or any streamable-http server):**
+
+```json
+{
+  "mcpServers": {
+    "schwab-connector": {
+      "httpUrl": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
+
+Add `"headers": { "Authorization": "Bearer $TOKEN" }` if the endpoint
+requires auth.
 
 ## What this hub will and won't do
 
