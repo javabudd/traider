@@ -4,6 +4,89 @@ Read-only Schwab Trader API bridge exposed as an MCP server for Claude.
 See [AGENTS.md](AGENTS.md) for how the code is organized and what to
 watch out for.
 
+## What this MCP server can do
+
+Once the server is running and Claude is connected, Claude gets three
+tools. All are **read-only** — no orders, no alerts, no writes.
+
+### `get_quote(symbol, field="LAST")`
+
+A single snapshot field for one symbol. Handy for a quick "what's SPY
+trading at right now."
+
+- `symbol` — any symbol Schwab accepts: equities (`AAPL`), ETFs
+  (`SPY`), futures (`/ES`), indices (`$SPX`), or 21-char OSI options
+  (`SPY   250321C00500000`).
+- `field` — either a friendly alias or a native Schwab key. Aliases:
+  `LAST`, `BID`, `ASK`, `VOLUME`, `MARK`, `OPEN`, `HIGH`, `LOW`,
+  `CLOSE`, `NET_CHANGE`, `PERCENT_CHANGE`, `BID_SIZE`, `ASK_SIZE`.
+  Anything else is passed straight through to the Schwab quote object
+  (e.g. `lastPrice`, `quoteTime`, `52WeekHigh`).
+
+Returns a string (empty if the field isn't present).
+
+### `get_quotes(symbols, fields=None)`
+
+Batched version of `get_quote`. Use this whenever Claude needs more
+than one symbol or more than one field — one HTTP call instead of N.
+
+- `symbols` — list of tickers.
+- `fields` — list of aliases or native keys. If omitted, each symbol's
+  entry is the full Schwab `quote` object (useful when Claude wants
+  to browse what's available).
+
+Returns `{symbol: {field: value}}`.
+
+### `get_price_history(symbol, period_type="year", period=1, frequency_type="daily", frequency=1, ...)`
+
+OHLCV candles for charting or lookback analysis. Defaults give **one
+year of daily bars** (the "yearly chart, daily candles" case).
+
+Response shape is Schwab's native format:
+
+```json
+{
+  "symbol": "SPY",
+  "empty": false,
+  "candles": [
+    {"open": 512.3, "high": 513.9, "low": 511.0,
+     "close": 513.2, "volume": 78234100, "datetime": 1708992000000}
+  ]
+}
+```
+
+`datetime` is epoch milliseconds (UTC).
+
+Valid `period_type` / `period` / `frequency_type` / `frequency`
+combinations — Schwab rejects the rest with a 400:
+
+| `period_type` | `period`              | `frequency_type`          | `frequency`       |
+|---------------|-----------------------|---------------------------|-------------------|
+| `day`         | 1, 2, 3, 4, 5, 10     | `minute`                  | 1, 5, 10, 15, 30  |
+| `month`       | 1, 2, 3, 6            | `daily`, `weekly`         | 1                 |
+| `year`        | 1, 2, 3, 5, 10, 15, 20| `daily`, `weekly`, `monthly` | 1              |
+| `ytd`         | 1                     | `daily`, `weekly`         | 1                 |
+
+You can also pass `start_date` / `end_date` as epoch milliseconds —
+they override `period` when set. `need_extended_hours_data=True`
+includes pre/post-market candles; `need_previous_close=True` adds the
+prior session's close to the response.
+
+### Things worth knowing
+
+- **Freshness.** Quotes are real-time during RTH (or as close as the
+  Schwab API gets). Outside RTH, `lastPrice` may be stale — pre/post
+  fields live under different keys in the quote JSON, so ask for them
+  explicitly.
+- **Options.** Use the 21-character OSI format
+  (`SPY   250321C00500000`, with padded spaces), not dotted TOS
+  notation.
+- **Rate limits.** Schwab enforces per-endpoint quotas. If you hit
+  one, the tool raises (HTTP 429) — the server won't silently retry.
+- **Token expiry.** Access tokens auto-refresh. Refresh tokens die
+  after ~7 days of inactivity — if you see `SchwabAuthError`, re-run
+  `tos-connector auth`.
+
 ## Setup
 
 ### 1. Install conda

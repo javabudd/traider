@@ -117,6 +117,59 @@ class SchwabClient:
             out[sym] = {f: _extract_field(quote, f) for f in fields}
         return out
 
+    def get_price_history(
+        self,
+        symbol: str,
+        period_type: str = "year",
+        period: int = 1,
+        frequency_type: str = "daily",
+        frequency: int = 1,
+        start_date: int | None = None,
+        end_date: int | None = None,
+        need_extended_hours_data: bool = False,
+        need_previous_close: bool = False,
+    ) -> dict[str, Any]:
+        """Return OHLCV candles for ``symbol``.
+
+        Thin wrapper over ``/marketdata/v1/pricehistory``. Defaults give
+        one year of daily bars. Dates, if provided, are epoch
+        milliseconds and take precedence over ``period``.
+
+        Valid combinations (per Schwab):
+            period_type=day    period=1,2,3,4,5,10   frequency_type=minute  frequency=1,5,10,15,30
+            period_type=month  period=1,2,3,6        frequency_type=daily|weekly
+            period_type=year   period=1,2,3,5,10,15,20  frequency_type=daily|weekly|monthly
+            period_type=ytd    period=1              frequency_type=daily|weekly
+        """
+        logger.info(
+            "get_price_history symbol=%s period=%s%s frequency=%s%s",
+            symbol, period, period_type, frequency, frequency_type,
+        )
+        url = f"{self._base_url}/marketdata/v1/pricehistory"
+        params: dict[str, Any] = {
+            "symbol": symbol,
+            "periodType": period_type,
+            "frequencyType": frequency_type,
+            "frequency": frequency,
+            "needExtendedHoursData": str(need_extended_hours_data).lower(),
+            "needPreviousClose": str(need_previous_close).lower(),
+        }
+        if start_date is not None or end_date is not None:
+            if start_date is not None:
+                params["startDate"] = start_date
+            if end_date is not None:
+                params["endDate"] = end_date
+        else:
+            params["period"] = period
+        r = self._http.get(url, params=params, headers=self._auth_headers())
+        if r.status_code == 401:
+            logger.info("401 on price history; forcing token refresh")
+            with self._lock:
+                self._tokens = None
+            r = self._http.get(url, params=params, headers=self._auth_headers())
+        r.raise_for_status()
+        return r.json()
+
     def close(self) -> None:
         self._http.close()
 

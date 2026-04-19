@@ -6,9 +6,14 @@ Guidance for AI coding agents working in this repo.
 
 `tos-connector` (name kept for continuity — it no longer talks to TOS)
 is a read-only bridge between Claude (via MCP) and the **Schwab Trader
-API**. It exposes quote lookups as MCP tools so Claude can call them
-like any other tool. Pure Python over HTTP — cross-platform, no COM,
-no desktop app required.
+API**. It exposes quote lookups and historical OHLCV candles as MCP
+tools so Claude can call them like any other tool. Pure Python over
+HTTP — cross-platform, no COM, no desktop app required.
+
+The user-facing tool surface (names, arguments, valid parameter
+combinations) is documented in [README.md](README.md) under "What this
+MCP server can do". If you add or change a tool, update that section —
+it's what Claude clients read to learn what's available.
 
 ### Why not the TOS RTD path anymore
 
@@ -43,7 +48,7 @@ src/tos_connector/
   __main__.py       # dispatches "auth" subcommand vs. server
   schwab_client.py  # OAuth-authenticated HTTP client
   auth.py           # interactive authorization-code flow
-  server.py         # FastMCP server exposing get_quote / get_quotes
+  server.py         # FastMCP server: get_quote / get_quotes / get_price_history
 pyproject.toml      # deps: mcp, httpx, python-dotenv
 ```
 

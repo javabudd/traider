@@ -77,6 +77,75 @@ def get_quotes(
     return results
 
 
+@mcp.tool()
+def get_price_history(
+    symbol: str,
+    period_type: str = "year",
+    period: int = 1,
+    frequency_type: str = "daily",
+    frequency: int = 1,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    need_extended_hours_data: bool = False,
+    need_previous_close: bool = False,
+) -> dict[str, Any]:
+    """Return OHLCV candles for one symbol.
+
+    Defaults give one year of daily bars — the "daily bars on the
+    yearly chart" case. Response is Schwab's native shape:
+    ``{"symbol": ..., "empty": bool, "candles": [{open, high, low,
+    close, volume, datetime}, ...]}``. ``datetime`` is epoch ms.
+
+    Args:
+        symbol: Ticker (e.g. ``"SPY"``, ``"/ES"``, or a 21-char OSI
+            option symbol).
+        period_type: ``day``, ``month``, ``year``, or ``ytd``.
+        period: How many ``period_type`` units back from today. Valid
+            values depend on ``period_type``:
+            day=1/2/3/4/5/10, month=1/2/3/6,
+            year=1/2/3/5/10/15/20, ytd=1. Ignored if
+            ``start_date``/``end_date`` are set.
+        frequency_type: ``minute``, ``daily``, ``weekly``, ``monthly``.
+            Must be compatible with ``period_type``: day→minute,
+            month→daily|weekly, year→daily|weekly|monthly,
+            ytd→daily|weekly.
+        frequency: Candle size within ``frequency_type``.
+            minute=1/5/10/15/30, daily/weekly/monthly=1.
+        start_date: Optional epoch ms. If set (with or without
+            ``end_date``), overrides ``period``.
+        end_date: Optional epoch ms. Defaults to now when only
+            ``start_date`` is given.
+        need_extended_hours_data: Include pre/post-market candles.
+        need_previous_close: Include the prior session's close in the
+            response.
+    """
+    logger.info(
+        "get_price_history symbol=%s period=%s%s frequency=%s%s",
+        symbol, period, period_type, frequency, frequency_type,
+    )
+    try:
+        result = _get_client().get_price_history(
+            symbol,
+            period_type=period_type,
+            period=period,
+            frequency_type=frequency_type,
+            frequency=frequency,
+            start_date=start_date,
+            end_date=end_date,
+            need_extended_hours_data=need_extended_hours_data,
+            need_previous_close=need_previous_close,
+        )
+    except Exception:
+        logger.exception("get_price_history failed symbol=%s", symbol)
+        raise
+    candles = result.get("candles", [])
+    logger.info(
+        "get_price_history result symbol=%s candles=%d empty=%s",
+        symbol, len(candles), result.get("empty"),
+    )
+    return result
+
+
 def _configure_logging(log_file: Path) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(
