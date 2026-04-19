@@ -20,7 +20,8 @@ traider/
 ├── README.md                 # this file
 ├── mcp_servers/
 │   ├── docker-compose.yml    # one service per server (optional)
-│   └── schwab_connector/     # Schwab Trader API (incl. its Dockerfile)
+│   ├── schwab_connector/     # Schwab Trader API (incl. its Dockerfile)
+│   └── yahoo_connector/      # Yahoo Finance (no account required)
 └── logs/                     # per-server runtime logs (cwd-relative)
 ```
 
@@ -32,10 +33,58 @@ its own `README.md`, `AGENTS.md`, and `pyproject.toml`.
 | Server                                             | What it gives the model                                                          | Details                                                            |
 |----------------------------------------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------------|
 | [`schwab_connector`](mcp_servers/schwab_connector) | Quotes, OHLCV history, TA-Lib indicators, movers, instruments, hours, accounts, return/risk/correlation/regime/pair-spread analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
+| [`yahoo_connector`](mcp_servers/yahoo_connector)   | Same tool surface as `schwab_connector`, backed by Yahoo Finance (no account). Accounts/market-hours tools raise — Yahoo has no brokerage or authoritative session data. | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
+
+`schwab_connector` and `yahoo_connector` are **mutually exclusive
+alternatives**. Pick one per hub install — see
+[Choosing a market-data backend](#choosing-a-market-data-backend) below.
 
 More servers (other brokers, data vendors, news/sentiment, on-chain,
 research tools) will be added over time. The pattern stays the same:
 one subdirectory per server, independently installable.
+
+## Choosing a market-data backend
+
+`schwab_connector` and `yahoo_connector` expose the **same tool names**
+(`get_quote`, `get_price_history`, `run_technical_analysis`,
+`analyze_*`, …) so prompts are portable. They differ only in where
+the data comes from and what's not available:
+
+|                              | `schwab_connector`                          | `yahoo_connector`                            |
+|------------------------------|---------------------------------------------|----------------------------------------------|
+| Account needed               | Schwab developer account (app approval)     | None                                         |
+| Auth flow                    | One-time OAuth (browser)                    | None                                         |
+| Brokerage (`get_accounts`)   | ✅ real positions, cost basis, P&L          | ❌ raises — no brokerage                      |
+| Market hours (`get_market_hours`) | ✅ authoritative, holiday-aware        | ❌ raises — Yahoo has no such endpoint        |
+| Movers                       | per-index (`$SPX`, `$DJI`, …)               | US-market-wide Yahoo screeners               |
+| Intraday history depth       | Long (years of minute bars)                 | Short (~7d for 1m, ~60d for sub-hourly)      |
+| Data freshness               | Real-time during RTH (Schwab entitlement)   | Typically delayed ~15 min                    |
+| Unofficial endpoint?         | No — stable, paid, documented API           | Yes — `yfinance` scrapes; expect drift       |
+
+**Only one backend runs at a time** — they both bind port 8765. The
+selector is `COMPOSE_PROFILES` in `.env`:
+
+```
+COMPOSE_PROFILES=schwab    # or: yahoo
+```
+
+Each compose service is tagged with a matching profile, so
+`docker compose up` only starts the one you picked. If no profile is
+set, nothing starts (Compose prints the list of available profiles).
+
+Copy `.env.dist` to `.env` and edit the value, then run compose with
+`--env-file ../.env` so it picks up the profile:
+
+```bash
+cp .env.dist .env
+# edit .env to set COMPOSE_PROFILES=schwab or yahoo
+cd mcp_servers
+docker compose --env-file ../.env up -d
+```
+
+For host-mode (non-Docker), the backend is simply whichever binary
+you run — `schwab-connector` or `yahoo-connector`. Don't start both
+(same port).
 
 ## Quickstart
 
@@ -54,19 +103,31 @@ The flow is:
 
 Both run modes read credentials from a `.env` at the repo root
 (gitignored, loaded on startup). Compose also reads it via
-`env_file: ../.env` in `mcp_servers/docker-compose.yml`.
+`env_file: ../.env` in `mcp_servers/docker-compose.yml`, and uses
+`COMPOSE_PROFILES` from that file to decide which backend to start
+(see [Choosing a market-data backend](#choosing-a-market-data-backend)).
 
-For the Schwab connector, see its
-[README](mcp_servers/schwab_connector/README.md#5-configure-schwab-credentials)
-for the app-registration walkthrough.
+Start from the template:
+
+```bash
+cp .env.dist .env
+```
+
+Then edit:
 
 ```
+# Pick your backend — schwab or yahoo.
+COMPOSE_PROFILES=schwab
+
+# Schwab-only (ignored if COMPOSE_PROFILES=yahoo). See the Schwab
+# connector's README for the app-registration walkthrough.
 SCHWAB_APP_KEY=...
 SCHWAB_APP_SECRET=...
 SCHWAB_CALLBACK_URL=https://127.0.0.1
 ```
 
-Never commit this file or paste its contents into logs or chat.
+The Yahoo backend needs no credentials. Never commit `.env` or paste
+its contents into logs or chat.
 
 ### Run with Docker (recommended)
 
@@ -74,22 +135,30 @@ Each MCP server ships a `Dockerfile` next to its code, and
 `mcp_servers/docker-compose.yml` wires them all together. You skip
 installing conda and the C deps (TA-Lib, …) on your host.
 
-**1. Build the images**
+**1. Build the image(s)**
+
+Only the backend your profile selects needs building — but building
+all of them is cheap and lets you switch by flipping
+`COMPOSE_PROFILES` without another `build`:
 
 ```bash
 cd mcp_servers
-docker compose build
+docker compose --profile schwab --profile yahoo --env-file ../.env build
 ```
 
-**2. One-time OAuth (per server that needs it)**
+**2. One-time OAuth (Schwab only)**
 
-Run the server's auth subcommand interactively. The token file is
+Skip this step entirely on the Yahoo backend — yfinance is
+unauthenticated.
+
+For Schwab, run the auth subcommand interactively. The token file is
 written to `~/.schwab-connector/` on the host (mounted into the
 container), so a later `docker compose up` reuses it, and so does the
 host `schwab-connector` CLI if you also use it outside Docker.
 
 ```bash
-docker compose run --rm schwab-connector schwab-connector auth
+docker compose --env-file ../.env run --rm schwab-connector \
+    schwab-connector auth
 ```
 
 You'll paste the Schwab callback URL back into the terminal, same as
@@ -99,25 +168,29 @@ itself — it's a copy-paste from your browser).
 **3. Start the servers**
 
 ```bash
-docker compose up -d
+docker compose --env-file ../.env up -d
 ```
 
-Each server exposes its MCP endpoint on a fixed port:
+Only the service whose profile matches `COMPOSE_PROFILES` starts. It
+exposes its MCP endpoint on:
 
-| Server              | URL                     |
+| Backend             | URL                     |
 |---------------------|-------------------------|
 | `schwab-connector`  | `http://localhost:8765` |
+| `yahoo-connector`   | `http://localhost:8765` |
 
-Wire the URL into your AI CLI using the **HTTP** examples in
+Both bind 8765 — that's why only one runs at a time. Wire the URL
+into your AI CLI using the **HTTP** examples in
 [Connect your AI CLI](#connect-your-ai-cli) below. Logs land in
 `./logs/` on the host.
 
-**4. Stop / rebuild**
+**4. Stop / switch / rebuild**
 
 ```bash
-docker compose down                   # stop everything
-docker compose up -d schwab-connector # start just one server
-docker compose build --no-cache       # after changing a Dockerfile
+docker compose --env-file ../.env down       # stop whatever's running
+# switch backends: edit COMPOSE_PROFILES in ../.env, then:
+docker compose --env-file ../.env up -d
+docker compose --env-file ../.env build --no-cache   # after Dockerfile changes
 ```
 
 ### Run on the host (alternative)
@@ -135,23 +208,40 @@ conda create -n traider python=3.13
 conda activate traider
 ```
 
-**2. Install the server(s) you want**
+**2. Install the backend you want**
 
 ```bash
+# Schwab (needs developer account + OAuth):
 pip install -e ./mcp_servers/schwab_connector
+
+# or — Yahoo (no account, no auth):
+pip install -e ./mcp_servers/yahoo_connector
 ```
 
-**3. One-time auth, then run the server**
+Install only one. They bind the same port and provide the same tool
+names — having both on PATH is fine, but only run one at a time.
+
+**3. Auth (Schwab only), then run the server**
+
+Schwab:
 
 ```bash
 schwab-connector auth    # one-time browser OAuth flow
 schwab-connector         # starts the MCP server on stdio
 ```
 
+Yahoo:
+
+```bash
+yahoo-connector          # starts the MCP server on stdio — no auth
+```
+
 Or over HTTP for remote MCP clients:
 
 ```bash
 schwab-connector --transport streamable-http --port 8765
+# or
+yahoo-connector --transport streamable-http --port 8765
 ```
 
 Then see [Connect your AI CLI](#connect-your-ai-cli) — use the

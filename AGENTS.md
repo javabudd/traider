@@ -63,9 +63,12 @@ traider/
 ├── AGENTS.md                 # ← you are here (hub north star)
 ├── README.md                 # quick setup + list of servers
 ├── mcp_servers/
-│   └── schwab_connector/     # Schwab Trader API (quotes, history,
-│                             #   TA, movers, fundamentals, hours,
-│                             #   accounts, analytics)
+│   ├── schwab_connector/     # Schwab Trader API (quotes, history,
+│   │                         #   TA, movers, fundamentals, hours,
+│   │                         #   accounts, analytics)
+│   └── yahoo_connector/      # Yahoo Finance alternative — same tool
+│                             #   surface, no account needed, no
+│                             #   brokerage data
 └── logs/                     # runtime logs (cwd-relative per server)
 ```
 
@@ -144,5 +147,17 @@ servers can have incompatible deps without blocking each other.
 | Server                                             | Purpose                                                            | Details                                                            |
 |----------------------------------------------------|--------------------------------------------------------------------|--------------------------------------------------------------------|
 | [`schwab_connector`](mcp_servers/schwab_connector) | Schwab Trader API: quotes, history, TA, movers, accounts, analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
+| [`yahoo_connector`](mcp_servers/yahoo_connector)   | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
+
+`schwab_connector` and `yahoo_connector` are **mutually exclusive**
+market-data backends — they expose identical tool names and both bind
+port 8765, so only one runs at a time. The chosen backend is
+controlled by `COMPOSE_PROFILES` in `.env` (for Docker) or by which
+binary the user runs (for host-mode). When a user's prompt implies
+tools that the currently-loaded backend can't serve (e.g.
+`get_accounts` on the Yahoo backend), suggest they switch backends
+rather than trying to work around the gap — see the README's
+[Choosing a market-data backend](../README.md#choosing-a-market-data-backend)
+section for the full capability matrix.
 
 Add new rows here as servers land.

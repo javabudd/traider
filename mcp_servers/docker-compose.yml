@@ -8,18 +8,39 @@
 # the exposed HTTP endpoint. stdio transport is not useful from a
 # container, so every service here uses streamable-http.
 #
-# First-time OAuth (for any server that needs it) is an interactive
-# step. Example for the Schwab connector:
+# -----------------------------------------------------------------------
+# Choosing a market-data backend
+# -----------------------------------------------------------------------
 #
-#   docker compose run --rm schwab-connector schwab-connector auth
+# schwab-connector and yahoo-connector expose the same tool surface and
+# both bind port 8765 — only one should run at a time. Selection is by
+# Docker Compose profile, driven by COMPOSE_PROFILES in ../.env:
 #
-# That writes the token file to the mounted ~/.schwab-connector/ volume
-# on the host, and the main `up` command can then reuse it.
+#   COMPOSE_PROFILES=schwab   # uses Schwab (needs developer account)
+#   COMPOSE_PROFILES=yahoo    # uses Yahoo Finance (no account needed)
+#
+# Then, from this directory:
+#
+#   docker compose --env-file ../.env up -d
+#
+# Without COMPOSE_PROFILES set, neither backend starts (Compose only
+# launches services whose profile is active). If both profiles are
+# activated by accident, the second service fails to bind 8765 — that's
+# the intended signal that the hub is single-backend by design.
+#
+# First-time OAuth (Schwab only) is an interactive step:
+#
+#   docker compose --env-file ../.env run --rm schwab-connector \
+#       schwab-connector auth
+#
+# That writes the token file to ~/.schwab-connector/ on the host, and
+# a later `docker compose up` reuses it.
 
 name: traider
 
 services:
   schwab-connector:
+    profiles: ["schwab"]
     build:
       context: ./schwab_connector
     image: traider/schwab-connector:latest
@@ -40,4 +61,19 @@ services:
       - "8765:8765"
     stdin_open: true
     tty: true
+    restart: unless-stopped
+
+  yahoo-connector:
+    profiles: ["yahoo"]
+    build:
+      context: ./yahoo_connector
+    image: traider/yahoo-connector:latest
+    env_file:
+      - ../.env
+    environment:
+      YAHOO_CONNECTOR_LOG: /app/logs/yahoo-connector.log
+    volumes:
+      - ../logs:/app/logs
+    ports:
+      - "8765:8765"
     restart: unless-stopped
