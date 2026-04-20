@@ -16,7 +16,7 @@
 # First-time Schwab OAuth (only if the schwab provider is active) is an
 # interactive one-shot:
 #
-#   docker compose run --rm traider traider auth schwab
+#   docker compose run --rm traider auth schwab
 #
 # That writes the token file to ~/.schwab-connector/ on the host and a
 # later `docker compose up` reuses it.

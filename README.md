@@ -150,7 +150,7 @@ TA-Lib C library on your host.
 docker compose build
 
 # (Schwab provider only) one-time interactive OAuth:
-docker compose run --rm traider traider auth schwab
+docker compose run --rm traider auth schwab
 
 # Start the server:
 docker compose up -d

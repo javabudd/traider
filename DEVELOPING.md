@@ -184,7 +184,7 @@ service entry reads `TRAIDER_PROVIDERS` from `.env` and exposes 8765.
 
 ```bash
 docker compose build
-docker compose run --rm traider traider auth schwab   # schwab only
+docker compose run --rm traider auth schwab   # schwab only
 docker compose up -d
 ```
 
