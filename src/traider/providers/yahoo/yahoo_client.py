@@ -624,17 +624,20 @@ def _period_to_date_range(
 def _pick_screener(index: str, sort: str | None) -> str:
     """Yahoo screener resolver.
 
-    If ``index`` is already a Yahoo predefined screener key, use it.
-    Otherwise default to ``most_actives`` and let ``sort`` refine.
+    Schwab-style sort names (uppercase, e.g. ``PERCENT_CHANGE_UP``) map
+    through ``_MOVERS_SORT_DEFAULT`` whether they arrive via ``sort`` or
+    mistakenly via ``index``. Lowercase strings pass through as raw
+    Yahoo screener keys (``day_gainers``, ``most_actives``, …).
     """
     raw = (index or "").strip()
-    # Pass-through for raw Yahoo keys.
-    if raw and "_" in raw and not raw.startswith("$"):
+    for candidate in (sort, raw):
+        if candidate:
+            mapped = _MOVERS_SORT_DEFAULT.get(candidate.upper())
+            if mapped:
+                return mapped
+    # Pass-through for raw Yahoo keys (lowercase convention).
+    if raw and raw.islower() and "_" in raw:
         return raw
-    if sort:
-        mapped = _MOVERS_SORT_DEFAULT.get(sort.upper())
-        if mapped:
-            return mapped
     return "most_actives"
 
 
