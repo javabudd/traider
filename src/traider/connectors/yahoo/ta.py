@@ -64,6 +64,20 @@ def _run_one(
     except Exception as exc:
         raise ValueError(f"unknown TA-Lib indicator: {name!r}") from exc
 
+    # TA-Lib's abstract API strict-checks kwarg types against each
+    # parameter's default (e.g. BBANDS.nbdevup defaults to 2.0, so an
+    # int 2 is rejected). JSON can't distinguish int from float, so
+    # coerce numerics to the default's type before the call.
+    defaults = fn.parameters
+    for k, v in list(kwargs.items()):
+        if k not in defaults or isinstance(v, bool):
+            continue
+        default = defaults[k]
+        if isinstance(default, float) and isinstance(v, int):
+            kwargs[k] = float(v)
+        elif isinstance(default, int) and isinstance(v, float) and v.is_integer():
+            kwargs[k] = int(v)
+
     raw = fn(inputs, **kwargs)
 
     output_names = list(fn.output_names)

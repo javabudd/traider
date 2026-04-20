@@ -64,17 +64,40 @@ def _run_one(
     except Exception as exc:
         raise ValueError(f"unknown TA-Lib indicator: {name!r}") from exc
 
+    # TA-Lib's abstract API strict-checks kwarg types against each
+    # parameter's default (e.g. BBANDS.nbdevup defaults to 2.0, so an
+    # int 2 is rejected). JSON can't distinguish int from float, so
+    # coerce numerics to the default's type before the call.
+    defaults = fn.parameters
+    for k, v in list(kwargs.items()):
+        if k not in defaults or isinstance(v, bool):
+            continue
+        default = defaults[k]
+        if isinstance(default, float) and isinstance(v, int):
+            kwargs[k] = float(v)
+        elif isinstance(default, int) and isinstance(v, float) and v.is_integer():
+            kwargs[k] = int(v)
+
     raw = fn(inputs, **kwargs)
 
     output_names = list(fn.output_names)
-    if isinstance(raw, tuple) or len(output_names) > 1:
-        arrays = raw if isinstance(raw, tuple) else (raw,)
+    # TA-Lib's abstract API returns one of: a tuple of 1D arrays
+    # (typical multi-output path), a 2D ndarray of shape
+    # (n_outputs, n_samples) (also seen for multi-output), a 1D array
+    # or a plain list for single-output.
+    if isinstance(raw, tuple):
+        arrays: list[Any] = list(raw)
+    else:
+        arr = np.asarray(raw)
+        arrays = list(arr) if arr.ndim == 2 else [arr]
+
+    if len(output_names) > 1:
         value: Any = {
-            out_name: _nan_to_none(arr.tolist())
-            for out_name, arr in zip(output_names, arrays)
+            out_name: _nan_to_none(a)
+            for out_name, a in zip(output_names, arrays)
         }
     else:
-        value = _nan_to_none(raw.tolist())
+        value = _nan_to_none(arrays[0])
     return label, value
 
 
