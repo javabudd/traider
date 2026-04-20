@@ -264,28 +264,35 @@ def _breakevens_payload(
     }
 
 
-def _nfci_payload(
+def _financial_conditions_payload(
     client: FredClient,
     observation_start: str,
     zscore_window: int,
 ) -> dict[str, Any]:
-    series_ids = {"nfci": "NFCI"}
+    series_ids = {"nfci": "NFCI", "anfci": "ANFCI"}
     fetched = {
         label: _fetch_series(client, sid, observation_start)
         for label, sid in series_ids.items()
     }
-    summary = analytics.summarize_series(fetched["nfci"], zscore_window)
-    latest = (summary.get("latest") or {}).get("value")
-    summary["regime"] = analytics.nfci_regime(latest)
+    summaries: dict[str, Any] = {}
+    for label, s in fetched.items():
+        summary = analytics.summarize_series(s, zscore_window)
+        latest = (summary.get("latest") or {}).get("value")
+        summary["regime"] = analytics.nfci_regime(latest)
+        summaries[label] = summary
     return {
         "as_of": _latest_as_of(fetched),
-        "series": {"nfci": summary},
+        "series": summaries,
         "series_ids": series_ids,
         "zscore_window": zscore_window,
         "units_note": (
-            "NFCI is centered at 0 (average financial conditions since "
-            "1971). Positive = tighter than average, negative = looser. "
-            "Weekly, released Wednesdays."
+            "Both indices are centered at 0. NFCI = absolute level of "
+            "financial tightness vs the 1971-present average; positive = "
+            "tighter. ANFCI = financial conditions *adjusted for* the "
+            "current economic cycle (regressed out of credit / inflation / "
+            "activity), so ANFCI ≈ 0 means conditions are in line with "
+            "what macro would normally produce. ANFCI >> 0 flags stress "
+            "beyond what the cycle justifies. Weekly, Wed release."
         ),
     }
 
@@ -753,34 +760,93 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             raise
 
     @mcp.tool()
+    def analyze_financial_conditions(
+        observation_start: str | None = None,
+        zscore_window: int = 504,
+    ) -> dict[str, Any]:
+        """Chicago Fed financial-conditions indices: NFCI and ANFCI.
+
+        Pulls both the National Financial Conditions Index (``NFCI``)
+        and the Adjusted NFCI (``ANFCI``) and returns per-series
+        summary (latest, 1m/3m/6m/1y deltas, z-score vs
+        ``zscore_window``) with a ``regime`` label (``loose`` /
+        ``normal`` / ``tight`` / ``stressed``).
+
+        **What each tells you:**
+
+        - ``NFCI`` is the raw read: positive = financial conditions
+          tighter than the 1971-present average; negative = looser.
+          Moves with the cycle.
+        - ``ANFCI`` removes the cyclical component (regresses out
+          credit, inflation, activity), so ~0 means conditions are in
+          line with what macro would normally produce. Positive ANFCI
+          flags financial stress *beyond* what the cycle justifies —
+          a cleaner read on "are markets stressed independent of where
+          we are in the cycle?"
+
+        Read both: a positive NFCI with a near-zero ANFCI is
+        cycle-explained tightening; a positive ANFCI regardless of
+        NFCI is the interesting signal.
+
+        Both series are weekly, released Wednesdays.
+
+        Args:
+            observation_start: ISO date. Defaults to ~3 years back.
+            zscore_window: Observations in the z-score baseline (504
+                weekly observations ≈ 10y).
+        """
+        if observation_start is None:
+            observation_start = _default_macro_start()
+        logger.info(
+            "analyze_financial_conditions observation_start=%s zscore_window=%d",
+            observation_start, zscore_window,
+        )
+        try:
+            return _financial_conditions_payload(
+                _get_client(), observation_start, zscore_window,
+            )
+        except Exception:
+            logger.exception("analyze_financial_conditions failed")
+            raise
+
+    @mcp.tool()
     def analyze_macro_regime(
         observation_start: str | None = None,
         zscore_window: int = 504,
         breakeven_target: float = 2.0,
         breakeven_band: float = 0.25,
     ) -> dict[str, Any]:
-        """One-call synthesis of curve / credit / inflation / NFCI.
+        """One-call synthesis of curve / credit / inflation / financial
+        conditions.
 
         Internally runs :func:`analyze_yield_curve`,
         :func:`analyze_credit_spreads`, :func:`analyze_breakevens`, and
-        pulls Chicago Fed's ``NFCI`` (weekly financial conditions),
-        then rolls the four components into a single ``regime`` label
-        (``risk_on`` / ``neutral`` / ``risk_off`` / ``stressed``).
+        :func:`analyze_financial_conditions` (NFCI + ANFCI), then rolls
+        the components into a single ``regime`` label (``risk_on`` /
+        ``neutral`` / ``risk_off`` / ``stressed``).
+
+        The aggregate uses **NFCI** (absolute financial tightness), not
+        ANFCI (cycle-adjusted), because NFCI's sign carries the "are
+        we in stress mode right now" read that a risk-on/off tag should
+        reflect. ANFCI is surfaced as a secondary component so you can
+        see whether observed tightness is cycle-explained or not.
 
         A ``stressed`` reading in credit or NFCI forces the aggregate
         to ``stressed``. Otherwise components accrue ±1/±2 to a score
         that buckets into the other labels. This is deliberately
-        coarse — read the per-component labels (``curve.curve_shape``,
-        ``credit.regime``, ``breakevens.series[*].alignment``,
-        ``nfci.series.nfci.regime``) for the real signal.
+        coarse — read the per-component labels
+        (``curve.curve_shape``, ``credit.regime``,
+        ``breakevens.series[*].alignment``,
+        ``financial_conditions.series.{nfci,anfci}.regime``) for the
+        real signal.
 
         Args:
             observation_start: ISO date. Defaults to ~3 years back.
             zscore_window: Observations in the per-series z-score
-                baseline. Daily: 504 ≈ 2y; applied to NFCI too even
-                though it's weekly (504 weeks ≈ 10y), which is
-                consistent with how NFCI's own construction
-                normalises.
+                baseline. Daily: 504 ≈ 2y; applied to NFCI/ANFCI too
+                even though they're weekly (504 weeks ≈ 10y), which is
+                consistent with how those indices are themselves
+                normalised.
             breakeven_target, breakeven_band: Forwarded to the
                 breakevens component.
         """
@@ -798,12 +864,13 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 client, observation_start, zscore_window,
                 breakeven_target, breakeven_band,
             )
-            nfci = _nfci_payload(client, observation_start, zscore_window)
+            fin_cond = _financial_conditions_payload(client, observation_start, zscore_window)
         except Exception:
             logger.exception("analyze_macro_regime failed")
             raise
 
-        nfci_label = (nfci["series"]["nfci"].get("regime") or "unknown")
+        nfci_label = (fin_cond["series"]["nfci"].get("regime") or "unknown")
+        anfci_label = (fin_cond["series"]["anfci"].get("regime") or "unknown")
         component_labels = {
             "curve": curve["curve_shape"],
             "credit": credit["regime"],
@@ -811,6 +878,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 (breakevens["series"].get("10y") or {}).get("alignment") or "unknown"
             ),
             "nfci": nfci_label,
+            "anfci": anfci_label,
         }
         regime = analytics.aggregate_regime(
             curve=component_labels["curve"],
@@ -823,7 +891,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 curve.get("as_of"),
                 credit.get("as_of"),
                 breakevens.get("as_of"),
-                nfci.get("as_of"),
+                fin_cond.get("as_of"),
             ) if d
         ]
         as_of = max(component_as_ofs) if component_as_ofs else None
@@ -834,10 +902,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "curve": curve,
             "credit": credit,
             "breakevens": breakevens,
-            "nfci": nfci,
+            "financial_conditions": fin_cond,
             "note": (
-                "Aggregate label is a coarse summary — read the "
-                "per-component labels for the real signal. Stressed "
-                "in credit or NFCI forces the aggregate to stressed."
+                "Aggregate label uses NFCI (absolute tightness) not "
+                "ANFCI (cycle-adjusted) — ANFCI is surfaced as a "
+                "secondary signal. Stressed in credit or NFCI forces "
+                "the aggregate to stressed."
             ),
         }
