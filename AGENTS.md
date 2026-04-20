@@ -112,16 +112,16 @@ their third-party deps.
 
 ### Known profiles
 
-| Profile        | Tool group                                                         | Details                                                                                                      |
-|----------------|--------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
-| `schwab`       | Schwab Trader API: quotes, history, TA, movers, accounts, analytics | [README](src/traider/connectors/schwab/README.md) · [dev notes](DEVELOPING.md#schwab)                        |
-| `yahoo`        | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](src/traider/connectors/yahoo/README.md) · [dev notes](DEVELOPING.md#yahoo)                          |
-| `fred`         | FRED (St. Louis Fed): economic-release calendar, series metadata, observations | [README](src/traider/connectors/fred/README.md) · [dev notes](DEVELOPING.md#fred)                            |
-| `fed-calendar` | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source) | [README](src/traider/connectors/fed_calendar/README.md) · [dev notes](DEVELOPING.md#fed-calendar)            |
-| `sec-edgar`    | SEC EDGAR: 10-K/10-Q/8-K, Form 4 insiders, 13F holdings, XBRL facts / frames | [README](src/traider/connectors/sec_edgar/README.md) · [dev notes](DEVELOPING.md#sec-edgar)                  |
-| `factor`       | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, industry portfolios | [README](src/traider/connectors/factor/README.md) · [dev notes](DEVELOPING.md#factor)                        |
-| `treasury`     | US Treasury Fiscal Data: auction results, Daily Treasury Statement (TGA), debt-to-the-penny | [README](src/traider/connectors/treasury/README.md) · [dev notes](DEVELOPING.md#treasury)                    |
-| `news`         | Massive news API: ticker-scoped headlines + per-article sentiment insights | [README](src/traider/connectors/news/README.md) · [dev notes](DEVELOPING.md#news)                            |
+| Profile        | Tool group                                                                                                       | README                                                             |
+|----------------|------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------|
+| `schwab`       | Schwab Trader API: quotes, history, TA, movers, accounts, analytics                                              | [README](src/traider/connectors/schwab/README.md)                  |
+| `yahoo`        | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](src/traider/connectors/yahoo/README.md)                   |
+| `fred`         | FRED (St. Louis Fed): economic-release calendar, series metadata, observations                                   | [README](src/traider/connectors/fred/README.md)                    |
+| `fed-calendar` | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source)                             | [README](src/traider/connectors/fed_calendar/README.md)            |
+| `sec-edgar`    | SEC EDGAR: 10-K/10-Q/8-K, Form 4 insiders, 13F holdings, XBRL facts / frames                                     | [README](src/traider/connectors/sec_edgar/README.md)               |
+| `factor`       | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, industry portfolios         | [README](src/traider/connectors/factor/README.md)                  |
+| `treasury`     | US Treasury Fiscal Data: auction results, Daily Treasury Statement (TGA), debt-to-the-penny                      | [README](src/traider/connectors/treasury/README.md)                |
+| `news`         | Massive news API: ticker-scoped headlines + per-article sentiment insights                                       | [README](src/traider/connectors/news/README.md)                    |
 
 **`schwab` and `yahoo` are mutually exclusive.** They expose the same
 tool names; the server refuses to start with both enabled. Everything
@@ -143,14 +143,11 @@ doesn't carry at useful granularity (auctions, DTS, debt-to-the-penny).
 
 ## Where to look when a user asks about a capability
 
-1. **Check which profile owns it.** Look at
-   `src/traider/connectors/<name>/README.md` — each starts with a
-   "What this connector can do" section listing every tool.
-2. **Then check that connector's `AGENTS.md`** for the constraints,
-   gotchas, and conventions specific to it (OAuth flows, symbology,
-   rate limits, warmup behavior, C-library dependencies, …).
-3. **Only drop into the code** for the specifics of an implementation
-   you're about to change.
+Check which profile owns it by reading
+`src/traider/connectors/<name>/README.md` — each starts with a "What
+this connector can do" section listing every tool, plus any
+connector-specific constraints the analyst needs (symbology, data
+gaps, units, rate limits).
 
 Do *not* generalize constraints from one connector to another. A rule
 that holds for the Schwab connector (e.g. "treat the refresh token as
@@ -159,8 +156,7 @@ vendor connector that uses a static API key.
 
 ## Hub-wide hard constraints
 
-These apply to **every** connector module in this repo. Per-connector
-`AGENTS.md` files add more on top, but never relax these.
+These apply to **every** connector module in this repo.
 
 - **Read-only.** No tool in this hub performs writes to an external
   system (orders, alerts, account changes, posts, …). If a feature
@@ -197,23 +193,3 @@ it). If a tool call fails because the server isn't up, say so and
 stop — do not try to spawn, background, or restart it from inside a
 tool call. The same applies to interactive OAuth flows (`traider auth
 schwab`).
-
-## Adding a new connector
-
-When adding a new connector (e.g. another broker, a news/sentiment
-source, an on-chain feed):
-
-```
-src/traider/connectors/<name>/
-├── AGENTS.md          # per-connector constraints and gotchas
-├── README.md          # tool surface + any setup specific to this profile
-├── __init__.py
-├── <client>.py        # thin client over the upstream API
-└── tools.py           # def register(mcp, settings) — installs @mcp.tool()s
-```
-
-Then wire the profile name in `src/traider/server.py`
-(`PROFILES` map). If the connector introduces a new third-party
-dependency, add it to the top-level `pyproject.toml` — but keep the
-heavy imports *inside* the `tools.py` module, not at package
-`__init__`, so unused profiles don't pay the load cost.
