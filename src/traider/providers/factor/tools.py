@@ -2,7 +2,7 @@
 
 Tool surface:
 
-- ``list_datasets`` — catalog of the datasets this profile knows about
+- ``list_datasets`` — catalog of the datasets this provider knows about
 - ``get_factors`` — canonical Fama-French factor series (3/5 factor,
   momentum, reversal)
 - ``get_industry_portfolios`` — N-industry portfolio returns
@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
-from ...logging_utils import attach_profile_logger
+from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from .french_client import (
     DEFAULT_TTL_SECONDS,
@@ -101,11 +101,11 @@ def _pick_factor_section(parsed: ParsedFile, *, annual: bool):
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
-    attach_profile_logger("traider.factor", settings.log_file("factor"))
+    attach_provider_logger("traider.factor", settings.log_file("factor"))
 
     @mcp.tool()
     def list_datasets() -> dict[str, Any]:
-        """Catalog of Ken French datasets this profile knows about.
+        """Catalog of Ken French datasets this provider knows about.
 
         Returns the curated list that ``get_factors`` and
         ``get_industry_portfolios`` cover. For anything outside this list,

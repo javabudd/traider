@@ -1,6 +1,6 @@
 """Yahoo market-data tools registered on the shared FastMCP.
 
-Tool surface mirrors the ``schwab`` profile so prompts are portable
+Tool surface mirrors the ``schwab`` provider so prompts are portable
 between the two backends. See this provider's ``AGENTS.md`` for the
 places Yahoo's data model forces a divergence (accounts, market
 hours).
@@ -13,7 +13,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ...logging_utils import attach_profile_logger
+from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from . import analytics
 from .ta import run_indicators
@@ -57,7 +57,7 @@ def _fetch_candles(
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
-    attach_profile_logger("traider.yahoo", settings.log_file("yahoo"))
+    attach_provider_logger("traider.yahoo", settings.log_file("yahoo"))
 
     @mcp.tool()
     def get_quote(symbol: str, field: str = "LAST") -> str:
@@ -335,7 +335,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         """Not supported by the Yahoo backend.
 
         Yahoo Finance has no authoritative market-hours endpoint. This tool
-        raises; switch to the ``schwab`` profile (or another broker
+        raises; switch to the ``schwab`` provider (or another broker
         backend) for session hours.
         """
         logger.info("get_market_hours markets=%s date=%s (unsupported)", markets, date)
@@ -346,7 +346,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         """Not supported by the Yahoo backend.
 
         Yahoo is a market-data source, not a brokerage. This tool raises;
-        use the ``schwab`` profile for account/position data.
+        use the ``schwab`` provider for account/position data.
         """
         logger.info("get_accounts include_positions=%s (unsupported)", include_positions)
         return _get_client().get_accounts(include_positions=include_positions)

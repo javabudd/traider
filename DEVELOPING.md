@@ -11,7 +11,7 @@ touching the code.
 
 - [Environment setup](#environment-setup)
 - [Package layout](#package-layout)
-- [How the profile system works](#how-the-profile-system-works)
+- [How the provider system works](#how-the-provider-system-works)
 - [Running locally](#running-locally)
 - [Logging](#logging)
 - [Adding a new provider](#adding-a-new-provider)
@@ -42,7 +42,7 @@ pip install -e .
 `pyproject.toml` declares every provider's deps at the top level —
 `yfinance`, `lxml`, `beautifulsoup4`, `numpy`, `TA-Lib`, `mcp`, `httpx`,
 `python-dotenv`. They're installed unconditionally; which of them
-actually get *imported* is decided at runtime by the profile loader.
+actually get *imported* is decided at runtime by the provider loader.
 
 ## Package layout
 
@@ -50,9 +50,9 @@ actually get *imported* is decided at runtime by the profile loader.
 src/traider/
   __init__.py              # version, module docstring
   __main__.py              # entry: traider [auth schwab] | server
-  server.py                # FastMCP setup, PROFILES map, lazy loader
-  settings.py              # TraiderSettings (TRAIDER_TOOLS, log_dir)
-  logging_utils.py         # attach_profile_logger(logger_name, path)
+  server.py                # FastMCP setup, PROVIDERS map, lazy loader
+  settings.py              # TraiderSettings (TRAIDER_PROVIDERS, log_dir)
+  logging_utils.py         # attach_provider_logger(logger_name, path)
   providers/
     __init__.py            # (empty — providers are imported lazily)
     schwab/
@@ -102,33 +102,33 @@ inside a provider are relative (`from .client import X`, `from ..
 logging_utils import …`). Providers don't import from each other.
 `ta.py` / `analytics.py` duplicate between `schwab/` and `yahoo/`
 intentionally; merging them into a shared module would couple the two
-market-data backends in a way the profile system is designed to avoid.
+market-data backends in a way the provider system is designed to avoid.
 
-## How the profile system works
+## How the provider system works
 
-One server, many tool groups. `TRAIDER_TOOLS` (comma-separated in
-`.env` or the process env) lists the profiles to load:
+One server, many providers. `TRAIDER_PROVIDERS` (comma-separated in
+`.env` or the process env) lists the providers to load:
 
 ```
-TRAIDER_TOOLS=schwab,fred,sec-edgar,factor,treasury,news
+TRAIDER_PROVIDERS=schwab,fred,sec-edgar,factor,treasury,news
 ```
 
 Startup flow, in `src/traider/server.py`:
 
-1. `load_settings()` reads `TRAIDER_TOOLS` and `TRAIDER_LOG_DIR` into
-   a frozen `TraiderSettings`.
-2. `_validate_profiles(...)` rejects unknown names and enforces the
+1. `load_settings()` reads `TRAIDER_PROVIDERS` and `TRAIDER_LOG_DIR`
+   into a frozen `TraiderSettings`.
+2. `_validate_providers(...)` rejects unknown names and enforces the
    `schwab` / `yahoo` mutex.
 3. `_build_mcp()` creates one `FastMCP("traider", …)` instance.
-4. `load_profiles(mcp, settings)` walks the profile list and calls
-   `importlib.import_module(PROFILES[name])` — this is where lazy
+4. `load_providers(mcp, settings)` walks the provider list and calls
+   `importlib.import_module(PROVIDERS[name])` — this is where lazy
    loading happens. `yfinance`, `TA-Lib`, `lxml`, etc. only get
-   imported for profiles that are enabled.
+   imported for providers that are enabled.
 5. For each loaded module, `module.register(mcp, settings)` is called
    to hang `@mcp.tool()` functions on the shared FastMCP.
 6. `mcp.run(transport=…)` starts the transport loop.
 
-`schwab` and `yahoo` are listed in `MARKET_DATA_PROFILES`; enabling
+`schwab` and `yahoo` are listed in `MARKET_DATA_PROVIDERS`; enabling
 both is a `SystemExit` at startup rather than a race on the shared
 tool names.
 
@@ -138,7 +138,7 @@ Every provider's `tools.py` exposes:
 
 ```python
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
-    attach_profile_logger("traider.<name>", settings.log_file("<name>"))
+    attach_provider_logger("traider.<name>", settings.log_file("<name>"))
 
     @mcp.tool()
     def some_tool(...): ...
@@ -157,11 +157,11 @@ through the decorator.
 conda activate traider
 pip install -e .
 
-export TRAIDER_TOOLS=schwab,fred,sec-edgar
-export SCHWAB_APP_KEY=...          # if TRAIDER_TOOLS includes schwab
+export TRAIDER_PROVIDERS=schwab,fred,sec-edgar
+export SCHWAB_APP_KEY=...          # if TRAIDER_PROVIDERS includes schwab
 export SCHWAB_APP_SECRET=...
 export SCHWAB_CALLBACK_URL=https://127.0.0.1
-export FRED_API_KEY=...            # if TRAIDER_TOOLS includes fred
+export FRED_API_KEY=...            # if TRAIDER_PROVIDERS includes fred
 export SEC_EDGAR_USER_AGENT="your-name you@example.com"   # if sec-edgar
 
 # Schwab-only: one-time interactive OAuth. Writes to
@@ -180,7 +180,7 @@ traider --transport streamable-http --port 9000  # custom port
 
 `Dockerfile` + `docker-compose.yml` at the repo root build a single
 image that carries every dep (conda ta-lib + all pip deps). The
-service entry reads `TRAIDER_TOOLS` from `.env` and exposes 8765.
+service entry reads `TRAIDER_PROVIDERS` from `.env` and exposes 8765.
 
 ```bash
 docker compose build
@@ -201,9 +201,9 @@ Two layers:
 - **Root aggregate log**: `<TRAIDER_LOG_DIR>/traider.log` (default
   `./logs/traider.log`). Captures the `traider`, `mcp`, `uvicorn*`,
   and `httpx` loggers.
-- **Per-provider logs**: `<TRAIDER_LOG_DIR>/<profile>.log` (e.g.
+- **Per-provider logs**: `<TRAIDER_LOG_DIR>/<name>.log` (e.g.
   `logs/schwab.log`, `logs/fred.log`). Each provider's `register()`
-  calls `attach_profile_logger("traider.<name>", settings.log_file("<name>"))`.
+  calls `attach_provider_logger("traider.<name>", settings.log_file("<name>"))`.
 
 Rotation: 5 MB × 3 backups on every handler. Tool handlers wrap their
 bodies in `logger.exception(...)`, so the full traceback for a failed
@@ -225,12 +225,12 @@ src/traider/providers/<name>/
 
 Then:
 
-1. **Add the profile** to `PROFILES` in `src/traider/server.py`.
+1. **Add the provider** to `PROVIDERS` in `src/traider/server.py`.
 2. **Add any new deps** to the top-level `pyproject.toml`
    (`dependencies = [...]`) — but keep the heavy imports inside
-   `tools.py` so unused profiles don't pay the load cost.
+   `tools.py` so unused providers don't pay the load cost.
 3. **Add env-var docs** to `.env.dist`.
-4. **Link from root docs**: row in the profile table in `README.md`
+4. **Link from root docs**: row in the provider table in `README.md`
    and `AGENTS.md`, plus a section in this file's
    [per-provider dev notes](#per-provider-dev-notes).
 
@@ -439,7 +439,7 @@ is a firehose of low-signal releases:
    `include_release_dates_with_no_data=true`: fires on every day of
    a meeting window, so a two-week window returns ~14 copies. The
    curated `get_high_impact_calendar` excludes release 101; its
-   docstring points callers at the `fed-calendar` profile's
+   docstring points callers at the `fed-calendar` provider's
    `get_fomc_meetings` for FOMC dates.
 2. **No knob to filter by release** on `/releases/dates` itself.
    `get_release_schedule(release_ids=[...])` and
@@ -718,7 +718,7 @@ prose lines above it as the section title, rows below as data.
 - Don't reshape column names ("Mkt-RF" → "market_minus_rf"). Ken
   French names are canonical in the literature.
 - Don't add a "compute alpha / factor exposure" tool here. This
-  profile fetches and parses; any regression belongs in a separate
+  provider fetches and parses; any regression belongs in a separate
   tool or client-side over this + a market-data backend.
 
 ### treasury
@@ -734,7 +734,7 @@ primary-source datasets:
 - **Debt to the Penny** — daily total public debt outstanding.
 
 **Yield curve is deliberately not here.** FRED mirrors Treasury's
-H.15 in full (`DGS1MO` … `DGS30`, `DFII*` for TIPS). This profile
+H.15 in full (`DGS1MO` … `DGS30`, `DFII*` for TIPS). This provider
 exists for the Treasury datasets FRED does not carry at useful
 granularity.
 
@@ -758,7 +758,7 @@ in the projection and defaults.
 **Things that will bite you.**
 
 - **The DTS changed format in 2022.** The legacy PDF format and the
-  new JSON-native tables differ. This profile only talks to the new
+  new JSON-native tables differ. This provider only talks to the new
   Fiscal Data tables (`/v1/accounting/dts/...`). Data before Oct 2022
   returns new-format columns only — the endpoints will not
   reconstruct the old table structure.
@@ -774,7 +774,7 @@ in the projection and defaults.
   year of auctions can exceed 1 000 rows. Bump `limit` or iterate
   `page`.
 - **Yield curve is elsewhere.** 2Y / 10Y / 30Y time series →
-  `fred` profile's `get_series("DGS10")` — not `get_auction_results`.
+  `fred` provider's `get_series("DGS10")` — not `get_auction_results`.
   Auction high yields are stop-out yields for a specific sale, not a
   secondary-market curve.
 
@@ -824,10 +824,10 @@ request. Do not log it.
 **What not to do.**
 
 - Don't expand into Massive's other endpoints (aggregates, trades,
-  fundamentals) — re-introduces the "which profile owns quotes?"
+  fundamentals) — re-introduces the "which provider owns quotes?"
   routing ambiguity the hub avoids.
 - Don't cache responses silently. News freshness is the whole point;
   a stale cache hit defeats the tool.
 - Don't retry 429s internally.
 - Don't blend Massive's feed with another news provider in one tool
-  call. A second news source gets its own profile.
+  call. A second news source gets its own provider.

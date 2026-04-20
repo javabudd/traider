@@ -15,11 +15,11 @@ class TraiderSettings:
     """Shared settings passed to every provider's ``register()``.
 
     Attributes:
-        profiles: Ordered tuple of enabled profile names (e.g.
+        providers: Ordered tuple of enabled provider names (e.g.
             ``("schwab", "fred", "news")``). Driven by
-            ``TRAIDER_TOOLS`` (comma-separated).
+            ``TRAIDER_PROVIDERS`` (comma-separated).
         log_dir: Base directory for per-provider log files. Each
-            provider writes to ``<log_dir>/<profile>.log``. Override
+            provider writes to ``<log_dir>/<name>.log``. Override
             with ``TRAIDER_LOG_DIR`` (default: ``logs/`` in cwd).
         extra: Opaque pass-through map of the process env, so
             provider-specific vars (``FRED_API_KEY``,
@@ -27,16 +27,16 @@ class TraiderSettings:
             re-reading ``os.environ`` in every module.
     """
 
-    profiles: tuple[str, ...]
+    providers: tuple[str, ...]
     log_dir: Path
     extra: dict[str, str] = field(default_factory=dict)
 
-    def log_file(self, profile: str) -> Path:
-        """Path to the log file for one provider/profile."""
-        return self.log_dir / f"{profile}.log"
+    def log_file(self, provider: str) -> Path:
+        """Path to the log file for one provider."""
+        return self.log_dir / f"{provider}.log"
 
 
-def _parse_profiles(raw: str | None) -> tuple[str, ...]:
+def _parse_providers(raw: str | None) -> tuple[str, ...]:
     if not raw:
         return ()
     seen: list[str] = []
@@ -49,10 +49,10 @@ def _parse_profiles(raw: str | None) -> tuple[str, ...]:
 
 def load_settings() -> TraiderSettings:
     """Build a ``TraiderSettings`` from the current process env."""
-    profiles = _parse_profiles(os.environ.get("TRAIDER_TOOLS"))
+    providers = _parse_providers(os.environ.get("TRAIDER_PROVIDERS"))
     log_dir = Path(os.environ.get("TRAIDER_LOG_DIR", "logs")).resolve()
     return TraiderSettings(
-        profiles=profiles,
+        providers=providers,
         log_dir=log_dir,
         extra=dict(os.environ),
     )

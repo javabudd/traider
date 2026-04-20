@@ -2,7 +2,7 @@
 #
 # Single unified image for the traider hub. All provider deps are
 # installed once; which tool groups actually run inside is gated by
-# TRAIDER_TOOLS at startup (see src/traider/server.py).
+# TRAIDER_PROVIDERS at startup (see src/traider/server.py).
 
 FROM condaforge/miniforge3:24.9.0-0
 

@@ -1,14 +1,14 @@
-"""FastMCP server that lazy-loads provider modules by profile.
+"""FastMCP server that lazy-loads provider modules on startup.
 
 One server, one port, one MCP surface. Which tools are exposed is
-controlled at startup by ``TRAIDER_TOOLS`` in the environment:
+controlled at startup by ``TRAIDER_PROVIDERS`` in the environment:
 
-    TRAIDER_TOOLS=schwab,fred,sec-edgar,factor,treasury,news
+    TRAIDER_PROVIDERS=schwab,fred,sec-edgar,factor,treasury,news
 
 Each name maps to a provider module under ``traider.providers``.
 The module exposes ``register(mcp, settings)`` which installs its
 tools on the shared ``FastMCP`` instance. Modules for *disabled*
-profiles are never imported, so their third-party dependencies
+providers are never imported, so their third-party dependencies
 (e.g. ``yfinance``, ``TA-Lib``, ``lxml``) stay off the hot path.
 
 ``schwab`` and ``yahoo`` both provide the "market-data backend"
@@ -28,8 +28,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from .settings import TraiderSettings, load_settings
 
-# Canonical profile→module map. New providers get one line here.
-PROFILES: dict[str, str] = {
+# Canonical provider→module map. New providers get one line here.
+PROVIDERS: dict[str, str] = {
     "schwab":       "traider.providers.schwab.tools",
     "yahoo":        "traider.providers.yahoo.tools",
     "fred":         "traider.providers.fred.tools",
@@ -41,7 +41,7 @@ PROFILES: dict[str, str] = {
 }
 
 # Backends that expose the same market-data surface; pick one.
-MARKET_DATA_PROFILES: frozenset[str] = frozenset({"schwab", "yahoo"})
+MARKET_DATA_PROVIDERS: frozenset[str] = frozenset({"schwab", "yahoo"})
 
 logger = logging.getLogger("traider")
 
@@ -55,14 +55,14 @@ def _build_mcp() -> FastMCP:
     )
 
 
-def _validate_profiles(profiles: tuple[str, ...]) -> None:
-    unknown = [p for p in profiles if p not in PROFILES]
+def _validate_providers(providers: tuple[str, ...]) -> None:
+    unknown = [p for p in providers if p not in PROVIDERS]
     if unknown:
         raise SystemExit(
-            f"unknown TRAIDER_TOOLS entries: {unknown}. "
-            f"valid names: {sorted(PROFILES)}"
+            f"unknown TRAIDER_PROVIDERS entries: {unknown}. "
+            f"valid names: {sorted(PROVIDERS)}"
         )
-    backends = [p for p in profiles if p in MARKET_DATA_PROFILES]
+    backends = [p for p in providers if p in MARKET_DATA_PROVIDERS]
     if len(backends) > 1:
         raise SystemExit(
             "schwab and yahoo are mutually exclusive market-data backends "
@@ -88,19 +88,19 @@ def _configure_root_logging(log_file: Path) -> None:
             lg.setLevel(logging.INFO)
 
 
-def load_profiles(mcp: FastMCP, settings: TraiderSettings) -> None:
-    """Import each enabled profile's module and call ``register``."""
-    for name in settings.profiles:
-        module_path = PROFILES[name]
-        logger.info("loading profile=%s module=%s", name, module_path)
+def load_providers(mcp: FastMCP, settings: TraiderSettings) -> None:
+    """Import each enabled provider's module and call ``register``."""
+    for name in settings.providers:
+        module_path = PROVIDERS[name]
+        logger.info("loading provider=%s module=%s", name, module_path)
         module = importlib.import_module(module_path)
         register = getattr(module, "register", None)
         if register is None:
             raise SystemExit(
-                f"profile {name!r}: module {module_path} has no register()"
+                f"provider {name!r}: module {module_path} has no register()"
             )
         register(mcp, settings)
-        logger.info("profile=%s loaded", name)
+        logger.info("provider=%s loaded", name)
 
 
 def main() -> None:
@@ -117,19 +117,19 @@ def main() -> None:
     settings = load_settings()
     _configure_root_logging(settings.log_dir / "traider.log")
     logger.info(
-        "traider starting transport=%s host=%s port=%s profiles=%s log_dir=%s",
-        args.transport, args.host, args.port, settings.profiles, settings.log_dir,
+        "traider starting transport=%s host=%s port=%s providers=%s log_dir=%s",
+        args.transport, args.host, args.port, settings.providers, settings.log_dir,
     )
 
-    if not settings.profiles:
+    if not settings.providers:
         logger.warning(
-            "TRAIDER_TOOLS is empty — no providers will be loaded"
+            "TRAIDER_PROVIDERS is empty — no providers will be loaded"
         )
 
-    _validate_profiles(settings.profiles)
+    _validate_providers(settings.providers)
 
     mcp = _build_mcp()
-    load_profiles(mcp, settings)
+    load_providers(mcp, settings)
 
     if args.transport in ("streamable-http", "sse"):
         mcp.settings.host = args.host

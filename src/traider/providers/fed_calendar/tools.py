@@ -4,7 +4,7 @@ Primary-source scrape of federalreserve.gov's FOMC calendar page.
 Tool surface is intentionally narrow: dates and flags only. For
 *data* driven by these meetings (rate decisions, SEP dot-plot
 releases, minutes publication dates as tracked by FRED, ...) use
-the ``fred`` profile.
+the ``fred`` provider.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ...logging_utils import attach_profile_logger
+from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from .fomc_scraper import FomcScraper, utc_today
 
@@ -33,7 +33,7 @@ def _get_scraper() -> FomcScraper:
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
-    attach_profile_logger("traider.fed_calendar", settings.log_file("fed-calendar"))
+    attach_provider_logger("traider.fed_calendar", settings.log_file("fed-calendar"))
 
     @mcp.tool()
     def get_fomc_meetings(

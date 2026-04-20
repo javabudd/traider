@@ -17,7 +17,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ...logging_utils import attach_profile_logger
+from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from .fred_client import FredClient
 
@@ -26,7 +26,7 @@ from .fred_client import FredClient
 # want more can call `get_release_schedule` with their own `release_ids`.
 # Release 101 ("FOMC Press Release") is intentionally *not* here: FRED
 # emits noisy every-day-of-the-meeting-window rows for it; for FOMC
-# dates use the `fed-calendar` profile's `get_fomc_meetings` instead.
+# dates use the `fed-calendar` provider's `get_fomc_meetings` instead.
 _HIGH_IMPACT_RELEASES: dict[str, dict[int, str]] = {
     "inflation": {
         10: "Consumer Price Index",
@@ -129,7 +129,7 @@ def _dedupe_release_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
-    attach_profile_logger("traider.fred", settings.log_file("fred"))
+    attach_provider_logger("traider.fred", settings.log_file("fred"))
 
     @mcp.tool()
     def get_release_schedule(
@@ -166,7 +166,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         have data attached yet — that's how you *see* upcoming releases.
 
         For FOMC meeting dates specifically, reach for
-        ``get_fomc_meetings`` on the ``fed-calendar`` profile rather
+        ``get_fomc_meetings`` on the ``fed-calendar`` provider rather
         than this tool: FRED's release 101 ("FOMC Press Release") is
         noisy here (fires on every day of the meeting window).
 
@@ -261,7 +261,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             limit_per_release: Per-release row cap (FRED max 10000).
 
         **Does not cover FOMC meeting dates** — FRED's release 101 is
-        noisy. Use ``get_fomc_meetings`` on the ``fed-calendar`` profile
+        noisy. Use ``get_fomc_meetings`` on the ``fed-calendar`` provider
         for those.
 
         For anything outside this curated list, use
@@ -321,7 +321,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "release_dates": rows,
             "note": (
                 "FOMC meeting dates are not in this feed — use "
-                "the fed-calendar profile's get_fomc_meetings for those."
+                "the fed-calendar provider's get_fomc_meetings for those."
             ),
         }
 

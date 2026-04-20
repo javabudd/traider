@@ -18,7 +18,7 @@ fetches, compiles, parses, and explains.
 
 See [AGENTS.md](AGENTS.md) for the runtime analyst guidance that gets
 loaded into your AI CLI's context. Internals for modifying the code
-(how profiles load, how to add a provider) live in
+(how providers load, how to add a provider) live in
 [DEVELOPING.md](DEVELOPING.md) and are intentionally not auto-loaded.
 
 ## Layout
@@ -32,8 +32,8 @@ traider/
 ├── docker-compose.yml        # one service, one port
 ├── pyproject.toml            # installable package
 ├── src/traider/
-│   ├── server.py             # FastMCP server + profile loader
-│   ├── settings.py           # TraiderSettings, TRAIDER_TOOLS parsing
+│   ├── server.py             # FastMCP server + provider loader
+│   ├── settings.py           # TraiderSettings, TRAIDER_PROVIDERS parsing
 │   └── providers/
 │       ├── schwab/           # Schwab Trader API + auth
 │       ├── yahoo/            # Yahoo Finance (via yfinance)
@@ -48,19 +48,19 @@ traider/
 
 Each provider under `src/traider/providers/` is a module with its
 own `AGENTS.md` and `README.md`. Provider modules are loaded
-**lazily** — only the ones listed in `TRAIDER_TOOLS` are imported,
-so you don't pay the dep-load or warmup cost for groups you aren't
+**lazily** — only the ones listed in `TRAIDER_PROVIDERS` are imported,
+so you don't pay the dep-load or warmup cost for providers you aren't
 using.
 
-## Selecting which tool groups to load
+## Selecting which providers to load
 
-One env var, `TRAIDER_TOOLS`, controls the exposed tool surface:
+One env var, `TRAIDER_PROVIDERS`, controls the exposed tool surface:
 
 ```
-TRAIDER_TOOLS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
+TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 ```
 
-| Profile        | Tool group                        | Creds required                  |
+| Provider       | Tool group                        | Creds required                  |
 |----------------|-----------------------------------|---------------------------------|
 | `schwab`       | Schwab market data + accounts     | Schwab app key/secret + OAuth   |
 | `yahoo`        | Yahoo Finance market data         | None                            |
@@ -76,11 +76,11 @@ Rules:
 - **Pick at most one market-data backend** (`schwab` *or* `yahoo`).
   They expose the same tool names and are mutually exclusive; enabling
   both at once is a startup error.
-- **Add any mix of the other profiles.** They expose distinct tool
+- **Add any mix of the other providers.** They expose distinct tool
   names, so they compose freely with each other and with whichever
   market-data backend you chose.
 
-If `TRAIDER_TOOLS` is empty, the server starts with no tools
+If `TRAIDER_PROVIDERS` is empty, the server starts with no tools
 registered — useful for smoke-testing the transport but not for
 actual work.
 
@@ -118,25 +118,25 @@ Copy the template and edit:
 cp .env.dist .env
 ```
 
-Set `TRAIDER_TOOLS` to the tool groups you want, plus credentials
-for the profiles that need them:
+Set `TRAIDER_PROVIDERS` to the providers you want, plus credentials
+for the ones that need them:
 
 ```
-TRAIDER_TOOLS=schwab,fred,fed-calendar,sec-edgar
+TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar
 
-# schwab profile only.
+# schwab provider only.
 SCHWAB_APP_KEY=...
 SCHWAB_APP_SECRET=...
 SCHWAB_CALLBACK_URL=https://127.0.0.1
 
-# fred profile only.
+# fred provider only.
 FRED_API_KEY=...
 
-# sec-edgar profile only.
+# sec-edgar provider only.
 SEC_EDGAR_USER_AGENT=your-name you@example.com
 ```
 
-The `yahoo`, `fed-calendar`, `factor`, and `treasury` profiles need no
+The `yahoo`, `fed-calendar`, `factor`, and `treasury` providers need no
 credentials. Never commit `.env` or paste its contents into logs or
 chat.
 
@@ -149,7 +149,7 @@ TA-Lib C library on your host.
 # Build once (or after a Dockerfile / pyproject.toml change):
 docker compose build
 
-# (Schwab profile only) one-time interactive OAuth:
+# (Schwab provider only) one-time interactive OAuth:
 docker compose run --rm traider traider auth schwab
 
 # Start the server:
@@ -160,7 +160,7 @@ The MCP endpoint is exposed at `http://localhost:8765/mcp`. Per-
 provider log files land in `./logs/` on the host
 (`schwab.log`, `fred.log`, …) plus an aggregated `traider.log`.
 
-Switch profile mix: edit `TRAIDER_TOOLS` in `.env`, then
+Switch provider mix: edit `TRAIDER_PROVIDERS` in `.env`, then
 `docker compose restart`. No rebuild needed unless deps changed.
 
 ### Run on the host (alternative)
@@ -175,7 +175,7 @@ pip install -e .
 # Schwab-only: one-time browser OAuth.
 traider auth schwab
 
-# Start the server (profiles come from $TRAIDER_TOOLS).
+# Start the server (providers come from $TRAIDER_PROVIDERS).
 traider --transport streamable-http --port 8765
 # or stdio:
 traider --transport stdio
@@ -184,7 +184,7 @@ traider --transport stdio
 ## Connect your AI CLI
 
 The server exposes a single MCP endpoint. Register it once; the tools
-available are whatever profiles you enabled in `TRAIDER_TOOLS`.
+available are whatever providers you enabled in `TRAIDER_PROVIDERS`.
 
 ### Claude Code
 

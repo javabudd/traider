@@ -1,6 +1,6 @@
 """Schwab market-data + account tools registered on the shared FastMCP.
 
-Same tool surface as the ``yahoo`` profile; the two are mutually
+Same tool surface as the ``yahoo`` provider; the two are mutually
 exclusive. Schwab adds ``get_accounts`` (brokerage positions), which
 Yahoo cannot serve.
 """
@@ -12,7 +12,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ...logging_utils import attach_profile_logger
+from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from . import analytics
 from .schwab_client import SchwabClient
@@ -56,7 +56,7 @@ def _fetch_candles(
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
-    attach_profile_logger("traider.schwab", settings.log_file("schwab"))
+    attach_provider_logger("traider.schwab", settings.log_file("schwab"))
 
     @mcp.tool()
     def get_quote(symbol: str, field: str = "LAST") -> str:

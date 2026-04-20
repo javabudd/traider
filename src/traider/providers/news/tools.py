@@ -7,7 +7,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ...logging_utils import attach_profile_logger
+from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from .massive_client import MassiveClient
 
@@ -28,7 +28,7 @@ def _get_client() -> MassiveClient:
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
-    attach_profile_logger("traider.news", settings.log_file("news"))
+    attach_provider_logger("traider.news", settings.log_file("news"))
 
     @mcp.tool()
     def get_news(
@@ -47,7 +47,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         tracking and to explain intraday moves.
 
         Pair with other hub tools for context — recent 8-K filings
-        (``sec-edgar`` profile), upcoming macro releases (``fred``), price
+        (``sec-edgar`` provider), upcoming macro releases (``fred``), price
         action around the article timestamp (market-data backend).
 
         Args:

@@ -1,11 +1,11 @@
 # traider — unified MCP server hub
 #
-# One image, one service, one port. Which tool groups are exposed is
-# controlled by TRAIDER_TOOLS in ./.env. Example:
+# One image, one service, one port. Which providers are exposed is
+# controlled by TRAIDER_PROVIDERS in ./.env. Example:
 #
-#   TRAIDER_TOOLS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
+#   TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 #
-# Valid profile names: schwab, yahoo, fred, fed-calendar, sec-edgar,
+# Valid provider names: schwab, yahoo, fred, fed-calendar, sec-edgar,
 # factor, treasury, news. schwab and yahoo are mutually exclusive
 # market-data backends — enabling both at once is an error.
 #
@@ -13,7 +13,7 @@
 #
 #   docker compose up -d
 #
-# First-time Schwab OAuth (only if the schwab profile is active) is an
+# First-time Schwab OAuth (only if the schwab provider is active) is an
 # interactive one-shot:
 #
 #   docker compose run --rm traider traider auth schwab
@@ -32,11 +32,11 @@ services:
       - ./.env
     environment:
       TRAIDER_LOG_DIR: /app/logs
-      # Default token location for the schwab profile. Overridable via
+      # Default token location for the schwab provider. Overridable via
       # SCHWAB_TOKEN_FILE in ./.env if the user stores the token
       # somewhere non-standard.
       SCHWAB_TOKEN_FILE: /tokens/schwab-token.json
-      # Factor profile caches Ken French ZIPs here across restarts.
+      # Factor provider caches Ken French ZIPs here across restarts.
       FACTOR_CACHE_DIR: /cache
     volumes:
       # Schwab OAuth token file (rw — the client rewrites it when the

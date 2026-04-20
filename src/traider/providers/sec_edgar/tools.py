@@ -21,7 +21,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ...logging_utils import attach_profile_logger
+from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from . import form4_parser, form13f_parser
 from .edgar_client import SecEdgarClient, SecEdgarError
@@ -152,7 +152,7 @@ def _normalize_accession(accession_number: str) -> str:
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
-    attach_profile_logger("traider.sec_edgar", settings.log_file("sec-edgar"))
+    attach_provider_logger("traider.sec_edgar", settings.log_file("sec-edgar"))
 
     @mcp.tool()
     def search_companies(query: str, limit: int = 20) -> dict[str, Any]:
@@ -160,7 +160,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
 
         Case-insensitive substring match against ticker and company name.
         Returns at most ``limit`` hits. This is the cheapest way to find a
-        CIK; every other tool in this profile accepts a ticker or CIK via
+        CIK; every other tool in this provider accepts a ticker or CIK via
         ``ticker_or_cik``.
 
         Note: SEC's map covers US-listed operating companies. Funds and

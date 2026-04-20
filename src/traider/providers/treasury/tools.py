@@ -10,7 +10,7 @@ already mirror:
 - **Debt to the penny** (daily total public debt outstanding).
 
 Yield-curve queries (DGS1MO … DGS30, DFII* for real yields) should go
-to the ``fred`` profile's ``get_series`` — FRED carries H.15 in full
+to the ``fred`` provider's ``get_series`` — FRED carries H.15 in full
 and is the common entry point for that data.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ...logging_utils import attach_profile_logger
+from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from .treasury_client import DTS_PATHS, TreasuryClient
 
@@ -90,7 +90,7 @@ def _fields_csv(fields: list[str] | None, default: list[str]) -> str:
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
-    attach_profile_logger("traider.treasury", settings.log_file("treasury"))
+    attach_provider_logger("traider.treasury", settings.log_file("treasury"))
 
     @mcp.tool()
     def get_auction_results(
