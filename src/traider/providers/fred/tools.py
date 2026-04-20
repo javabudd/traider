@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import atexit
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
+from . import analytics
 from .fred_client import FredClient
 
 # Trading-relevant releases, grouped by what they move. Kept deliberately
@@ -126,6 +127,167 @@ def _dedupe_release_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(key)
         out.append(row)
     return out
+
+
+# Three-year default for macro tools: a 504-observation z-score window
+# on a daily series needs ~2 calendar years; 3 gives headroom and keeps
+# the deltas (1m/3m/6m/1y) inside the fetched window.
+_MACRO_DEFAULT_LOOKBACK_DAYS = 3 * 365 + 60
+
+
+def _default_macro_start() -> str:
+    return (datetime.now(timezone.utc).date() - timedelta(days=_MACRO_DEFAULT_LOOKBACK_DAYS)).isoformat()
+
+
+def _fetch_series(
+    client: FredClient,
+    series_id: str,
+    observation_start: str,
+) -> list[tuple[str, float]]:
+    payload = client.series_observations(
+        series_id,
+        observation_start=observation_start,
+        limit=100_000,
+        sort_order="asc",
+    )
+    return analytics.parse_observations(payload)
+
+
+def _latest_as_of(series_map: dict[str, list[tuple[str, float]]]) -> str | None:
+    dates = [s[-1][0] for s in series_map.values() if s]
+    return max(dates) if dates else None
+
+
+def _yield_curve_payload(
+    client: FredClient,
+    observation_start: str,
+    zscore_window: int,
+) -> dict[str, Any]:
+    series_ids = {"3m": "DGS3MO", "2y": "DGS2", "10y": "DGS10", "30y": "DGS30"}
+    fetched = {
+        label: _fetch_series(client, sid, observation_start)
+        for label, sid in series_ids.items()
+    }
+    levels = {
+        label: analytics.summarize_series(s, zscore_window)
+        for label, s in fetched.items()
+    }
+    slope_2s10s = analytics.difference_series(fetched["10y"], fetched["2y"])
+    slope_3m10y = analytics.difference_series(fetched["10y"], fetched["3m"])
+    slope_5s30s = analytics.difference_series(fetched["30y"], fetched["2y"])
+
+    def slope_summary(spread: list[tuple[str, float]]) -> dict[str, Any]:
+        summary = analytics.summarize_series(spread, zscore_window)
+        summary["inverted"] = (spread[-1][1] < 0) if spread else None
+        return summary
+
+    slopes = {
+        "2s10s": slope_summary(slope_2s10s),
+        "3m10y": slope_summary(slope_3m10y),
+        "2s30s": slope_summary(slope_5s30s),
+    }
+    latest_2s10s = slope_2s10s[-1][1] if slope_2s10s else None
+    latest_3m10y = slope_3m10y[-1][1] if slope_3m10y else None
+    shape = analytics.curve_shape(latest_2s10s, latest_3m10y)
+    return {
+        "as_of": _latest_as_of(fetched),
+        "curve_shape": shape,
+        "levels": levels,
+        "slopes": slopes,
+        "series_ids": series_ids,
+        "zscore_window": zscore_window,
+        "units_note": "Yields are in percent; slopes in percentage points.",
+    }
+
+
+def _credit_spreads_payload(
+    client: FredClient,
+    observation_start: str,
+    zscore_window: int,
+) -> dict[str, Any]:
+    series_ids = {"hy_oas": "BAMLH0A0HYM2", "ig_oas": "BAMLC0A0CM"}
+    fetched = {
+        label: _fetch_series(client, sid, observation_start)
+        for label, sid in series_ids.items()
+    }
+    summaries = {
+        label: analytics.summarize_series(s, zscore_window)
+        for label, s in fetched.items()
+    }
+    hy_z = (summaries["hy_oas"].get("zscore") or {}).get("z_score")
+    ig_z = (summaries["ig_oas"].get("zscore") or {}).get("z_score")
+    return {
+        "as_of": _latest_as_of(fetched),
+        "regime": analytics.credit_regime(hy_z, ig_z),
+        "series": summaries,
+        "series_ids": series_ids,
+        "zscore_window": zscore_window,
+        "units_note": "OAS values are in percent (decimal percent, not bps).",
+    }
+
+
+def _breakevens_payload(
+    client: FredClient,
+    observation_start: str,
+    zscore_window: int,
+    target: float,
+    target_band: float,
+) -> dict[str, Any]:
+    series_ids = {"5y": "T5YIE", "10y": "T10YIE", "5y5y_forward": "T5YIFR"}
+    fetched = {
+        label: _fetch_series(client, sid, observation_start)
+        for label, sid in series_ids.items()
+    }
+    summaries: dict[str, Any] = {}
+    for label, s in fetched.items():
+        summary = analytics.summarize_series(s, zscore_window)
+        latest = (summary.get("latest") or {}).get("value")
+        summary["alignment"] = analytics.breakeven_alignment(
+            latest, target=target, band=target_band,
+        )
+        summary["deviation_from_target"] = (
+            latest - target if latest is not None else None
+        )
+        summaries[label] = summary
+    return {
+        "as_of": _latest_as_of(fetched),
+        "target": target,
+        "target_band": target_band,
+        "series": summaries,
+        "series_ids": series_ids,
+        "zscore_window": zscore_window,
+        "units_note": (
+            "Breakeven rates are in percent. The Fed's 2% target is for "
+            "PCE, not breakevens — breakevens include an inflation risk "
+            "premium (typically 20-50bp above expected inflation)."
+        ),
+    }
+
+
+def _nfci_payload(
+    client: FredClient,
+    observation_start: str,
+    zscore_window: int,
+) -> dict[str, Any]:
+    series_ids = {"nfci": "NFCI"}
+    fetched = {
+        label: _fetch_series(client, sid, observation_start)
+        for label, sid in series_ids.items()
+    }
+    summary = analytics.summarize_series(fetched["nfci"], zscore_window)
+    latest = (summary.get("latest") or {}).get("value")
+    summary["regime"] = analytics.nfci_regime(latest)
+    return {
+        "as_of": _latest_as_of(fetched),
+        "series": {"nfci": summary},
+        "series_ids": series_ids,
+        "zscore_window": zscore_window,
+        "units_note": (
+            "NFCI is centered at 0 (average financial conditions since "
+            "1971). Positive = tighter than average, negative = looser. "
+            "Weekly, released Wednesdays."
+        ),
+    }
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
@@ -473,3 +635,209 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         obs = result.get("observations", [])
         logger.info("get_series result series_id=%s observations=%d", series_id, len(obs))
         return result
+
+    @mcp.tool()
+    def analyze_yield_curve(
+        observation_start: str | None = None,
+        zscore_window: int = 504,
+    ) -> dict[str, Any]:
+        """Yield-curve regime snapshot from FRED H.15 daily series.
+
+        Pulls ``DGS3MO``, ``DGS2``, ``DGS10``, ``DGS30`` and returns,
+        per tenor and per slope (2s10s, 3m10y, 2s30s):
+
+        - ``latest`` value and date,
+        - 1m / 3m / 6m / 1y absolute change,
+        - rolling z-score and percentile vs the trailing
+          ``zscore_window`` observations (default 504 ≈ 2y of daily),
+        - for slopes: an ``inverted`` boolean (current value < 0).
+
+        ``curve_shape`` at the top level labels the current setup as
+        ``normal`` / ``flat`` / ``partially_inverted`` / ``inverted``.
+
+        Args:
+            observation_start: ISO date. Defaults to ~3 years back —
+                enough history for a 504-day z-score plus the 1y delta.
+            zscore_window: Number of observations in the rolling z-score
+                baseline. Daily series: 504 = ~2y, 252 = ~1y.
+        """
+        if observation_start is None:
+            observation_start = _default_macro_start()
+        logger.info(
+            "analyze_yield_curve observation_start=%s zscore_window=%d",
+            observation_start, zscore_window,
+        )
+        try:
+            return _yield_curve_payload(
+                _get_client(), observation_start, zscore_window,
+            )
+        except Exception:
+            logger.exception("analyze_yield_curve failed")
+            raise
+
+    @mcp.tool()
+    def analyze_credit_spreads(
+        observation_start: str | None = None,
+        zscore_window: int = 504,
+    ) -> dict[str, Any]:
+        """US corporate credit spreads (HY + IG) with regime label.
+
+        Pulls ICE BofA option-adjusted spread indices — ``BAMLH0A0HYM2``
+        (US High Yield) and ``BAMLC0A0CM`` (US Corporate / IG) — and
+        returns per-series latest, 1m/3m/6m/1y deltas, and z-score /
+        percentile vs the trailing ``zscore_window`` observations.
+
+        The top-level ``regime`` label is derived from the worse of
+        the two z-scores (z < -1 = ``tight``, -1..1 = ``normal``,
+        1..2 = ``wide``, >= 2 = ``stressed``) — we'd rather over-flag
+        credit stress than under-flag it.
+
+        Args:
+            observation_start: ISO date. Defaults to ~3 years back.
+            zscore_window: Observations in the z-score baseline.
+        """
+        if observation_start is None:
+            observation_start = _default_macro_start()
+        logger.info(
+            "analyze_credit_spreads observation_start=%s zscore_window=%d",
+            observation_start, zscore_window,
+        )
+        try:
+            return _credit_spreads_payload(
+                _get_client(), observation_start, zscore_window,
+            )
+        except Exception:
+            logger.exception("analyze_credit_spreads failed")
+            raise
+
+    @mcp.tool()
+    def analyze_breakevens(
+        observation_start: str | None = None,
+        zscore_window: int = 504,
+        target: float = 2.0,
+        target_band: float = 0.25,
+    ) -> dict[str, Any]:
+        """Market-implied inflation expectations vs the Fed's 2% target.
+
+        Pulls ``T5YIE`` (5y breakeven), ``T10YIE`` (10y), and
+        ``T5YIFR`` (5y5y forward) and returns, per tenor: latest,
+        1m/3m/6m/1y deltas, z-score vs ``zscore_window``, an
+        ``alignment`` label (``below_target`` / ``near_target`` /
+        ``above_target``) and ``deviation_from_target`` in percentage
+        points.
+
+        Note: the Fed's 2% target is for PCE inflation, not breakevens.
+        Breakevens include an inflation risk premium and typically run
+        20-50bp above expected inflation. ``target_band`` widens the
+        ``near_target`` zone to absorb that premium.
+
+        Args:
+            observation_start: ISO date. Defaults to ~3 years back.
+            zscore_window: Observations in the z-score baseline.
+            target: Center of the "near target" band, in percent.
+            target_band: Half-width of the band around ``target``.
+        """
+        if observation_start is None:
+            observation_start = _default_macro_start()
+        logger.info(
+            "analyze_breakevens observation_start=%s target=%.2f±%.2f zscore_window=%d",
+            observation_start, target, target_band, zscore_window,
+        )
+        try:
+            return _breakevens_payload(
+                _get_client(), observation_start, zscore_window,
+                target, target_band,
+            )
+        except Exception:
+            logger.exception("analyze_breakevens failed")
+            raise
+
+    @mcp.tool()
+    def analyze_macro_regime(
+        observation_start: str | None = None,
+        zscore_window: int = 504,
+        breakeven_target: float = 2.0,
+        breakeven_band: float = 0.25,
+    ) -> dict[str, Any]:
+        """One-call synthesis of curve / credit / inflation / NFCI.
+
+        Internally runs :func:`analyze_yield_curve`,
+        :func:`analyze_credit_spreads`, :func:`analyze_breakevens`, and
+        pulls Chicago Fed's ``NFCI`` (weekly financial conditions),
+        then rolls the four components into a single ``regime`` label
+        (``risk_on`` / ``neutral`` / ``risk_off`` / ``stressed``).
+
+        A ``stressed`` reading in credit or NFCI forces the aggregate
+        to ``stressed``. Otherwise components accrue ±1/±2 to a score
+        that buckets into the other labels. This is deliberately
+        coarse — read the per-component labels (``curve.curve_shape``,
+        ``credit.regime``, ``breakevens.series[*].alignment``,
+        ``nfci.series.nfci.regime``) for the real signal.
+
+        Args:
+            observation_start: ISO date. Defaults to ~3 years back.
+            zscore_window: Observations in the per-series z-score
+                baseline. Daily: 504 ≈ 2y; applied to NFCI too even
+                though it's weekly (504 weeks ≈ 10y), which is
+                consistent with how NFCI's own construction
+                normalises.
+            breakeven_target, breakeven_band: Forwarded to the
+                breakevens component.
+        """
+        if observation_start is None:
+            observation_start = _default_macro_start()
+        logger.info(
+            "analyze_macro_regime observation_start=%s zscore_window=%d",
+            observation_start, zscore_window,
+        )
+        client = _get_client()
+        try:
+            curve = _yield_curve_payload(client, observation_start, zscore_window)
+            credit = _credit_spreads_payload(client, observation_start, zscore_window)
+            breakevens = _breakevens_payload(
+                client, observation_start, zscore_window,
+                breakeven_target, breakeven_band,
+            )
+            nfci = _nfci_payload(client, observation_start, zscore_window)
+        except Exception:
+            logger.exception("analyze_macro_regime failed")
+            raise
+
+        nfci_label = (nfci["series"]["nfci"].get("regime") or "unknown")
+        component_labels = {
+            "curve": curve["curve_shape"],
+            "credit": credit["regime"],
+            "breakevens_10y": (
+                (breakevens["series"].get("10y") or {}).get("alignment") or "unknown"
+            ),
+            "nfci": nfci_label,
+        }
+        regime = analytics.aggregate_regime(
+            curve=component_labels["curve"],
+            credit=component_labels["credit"],
+            breakevens=component_labels["breakevens_10y"],
+            nfci=component_labels["nfci"],
+        )
+        component_as_ofs = [
+            d for d in (
+                curve.get("as_of"),
+                credit.get("as_of"),
+                breakevens.get("as_of"),
+                nfci.get("as_of"),
+            ) if d
+        ]
+        as_of = max(component_as_ofs) if component_as_ofs else None
+        return {
+            "as_of": as_of,
+            "regime": regime,
+            "component_labels": component_labels,
+            "curve": curve,
+            "credit": credit,
+            "breakevens": breakevens,
+            "nfci": nfci,
+            "note": (
+                "Aggregate label is a coarse summary — read the "
+                "per-component labels for the real signal. Stressed "
+                "in credit or NFCI forces the aggregate to stressed."
+            ),
+        }
