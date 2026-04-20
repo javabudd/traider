@@ -17,8 +17,12 @@ capability without re-deriving them.
 
 (Internals — how tools load, how to add a connector, how to run the
 server locally — live in `DEVELOPING.md` and are **not** auto-loaded
-into your context. Don't modify this codebase unless the user has
-explicitly asked you to do dev work; default to using it.)
+into your context. Default to using this codebase, not modifying it.
+**Load `DEVELOPING.md` only when the user explicitly asks to add,
+change, or remove something in the codebase itself** (new connector,
+new operation, bugfix, refactor, config change). A trading question
+— even one that surfaces a gap in what traider exposes — is not a
+cue to load it.)
 
 ## What this repo is
 
