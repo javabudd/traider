@@ -4,13 +4,13 @@ A hub for using an AI CLI (Claude Code, OpenCode, Cowork, Gemini CLI,
 Cursor, Aider, …) to gain financial insights and help make trading
 decisions.
 
-`traider` itself doesn't trade. It's a **collection of MCP servers**
-that expose read-only market data, account data, and analytics as
-tools the model can call. You keep every decision; the model fetches,
-compiles, parses, and explains.
+`traider` itself doesn't trade. It's **one MCP server** that exposes
+read-only market data, account data, macro, fundamentals, and
+analytics as tools the model can call. You keep every decision; the
+model fetches, compiles, parses, and explains.
 
 See [AGENTS.md](AGENTS.md) for the hub's north star — what belongs
-here, what doesn't, and how to navigate the per-server docs.
+here, what doesn't, and how to navigate the per-connector docs.
 
 ## Layout
 
@@ -18,368 +18,187 @@ here, what doesn't, and how to navigate the per-server docs.
 traider/
 ├── AGENTS.md                 # hub north star (load into your AI CLI)
 ├── README.md                 # this file
-├── docker-compose.yml        # one service per server (optional)
-├── mcp_servers/
-│   ├── schwab_connector/         # Schwab Trader API (incl. its Dockerfile)
-│   ├── yahoo_connector/          # Yahoo Finance (no account required)
-│   ├── fred_connector/           # FRED macro data / release calendar
-│   ├── fed_calendar_connector/   # FOMC meeting calendar (primary source)
-│   ├── sec_edgar_connector/      # SEC EDGAR filings, insiders, 13F, XBRL
-│   ├── factor_connector/         # Ken French data library (Fama-French, industry)
-│   ├── treasury_connector/       # Treasury Fiscal Data (auctions, DTS, debt-to-the-penny)
-│   └── news_connector/           # Massive news API (ticker-scoped headlines + sentiment)
-└── logs/                     # per-server runtime logs (cwd-relative)
+├── Dockerfile                # single image for the unified server
+├── docker-compose.yml        # one service, one port
+├── pyproject.toml            # installable package
+├── src/traider/
+│   ├── server.py             # FastMCP server + profile loader
+│   ├── settings.py           # TraiderSettings, TRAIDER_TOOLS parsing
+│   └── connectors/
+│       ├── schwab/           # Schwab Trader API + auth
+│       ├── yahoo/            # Yahoo Finance (via yfinance)
+│       ├── fred/             # FRED macro data / release calendar
+│       ├── fed_calendar/     # FOMC meeting calendar (primary source)
+│       ├── sec_edgar/        # SEC EDGAR filings, insiders, 13F, XBRL
+│       ├── factor/           # Ken French data library
+│       ├── treasury/         # US Treasury Fiscal Data
+│       └── news/             # Massive news API
+└── logs/                     # per-connector runtime logs
 ```
 
-Each server under `mcp_servers/` is its own installable package with
-its own `README.md`, `AGENTS.md`, and `pyproject.toml`.
+Each connector under `src/traider/connectors/` is a module with its
+own `AGENTS.md` and `README.md`. Connector modules are loaded
+**lazily** — only the ones listed in `TRAIDER_TOOLS` are imported,
+so you don't pay the dep-load or warmup cost for groups you aren't
+using.
 
-## Available MCP servers
+## Selecting which tool groups to load
 
-| Server                                                         | What it gives the model                                                          | Details                                                            |
-|----------------------------------------------------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------------|
-| [`schwab_connector`](mcp_servers/schwab_connector)             | Quotes, OHLCV history, TA-Lib indicators, option chains (with Greeks), movers, instruments, hours, accounts, return/risk/correlation/regime/pair-spread analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
-| [`yahoo_connector`](mcp_servers/yahoo_connector)               | Same tool surface as `schwab_connector`, backed by Yahoo Finance (no account). Accounts/market-hours tools raise — Yahoo has no brokerage or authoritative session data. Option chains are delayed and omit Greeks. | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
-| [`fred_connector`](mcp_servers/fred_connector)                 | Macro from FRED: economic-release calendar (CPI, NFP, GDP, PCE, retail sales, JOLTS, …), series metadata, and observation time-series. Additive — runs alongside either market-data backend on port 8766. | [README](mcp_servers/fred_connector/README.md) · [AGENTS](mcp_servers/fred_connector/AGENTS.md) |
-| [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates + SEP / press-conference flags, scraped directly from federalreserve.gov (primary source). Additive — port 8767. | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
-| [`sec_edgar_connector`](mcp_servers/sec_edgar_connector)       | SEC EDGAR primary-source filings (10-K, 10-Q, 8-K, 20-F, …), Form 4 insider transactions, 13F institutional holdings, and XBRL company facts (per-company + cross-sectional frames). Additive — port 8768. | [README](mcp_servers/sec_edgar_connector/README.md) · [AGENTS](mcp_servers/sec_edgar_connector/AGENTS.md) |
-| [`factor_connector`](mcp_servers/factor_connector)             | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, and 5/10/12/17/30/38/48/49-industry portfolios at monthly / weekly / daily frequencies. Disk-cached with explicit TTL. Additive — port 8771. | [README](mcp_servers/factor_connector/README.md) · [AGENTS](mcp_servers/factor_connector/AGENTS.md) |
-| [`treasury_connector`](mcp_servers/treasury_connector)         | US Treasury Fiscal Data: securities auction results (bid-to-cover, dealer takedown, stop-out yield), Daily Treasury Statement (TGA balance + cash flows), debt-to-the-penny. No credentials. Yield-curve queries route to `fred_connector`, not here. Additive — port 8772. | [README](mcp_servers/treasury_connector/README.md) · [AGENTS](mcp_servers/treasury_connector/AGENTS.md) |
-| [`news_connector`](mcp_servers/news_connector)                 | Massive news API: ticker-scoped headlines with publisher metadata and per-article sentiment insights. Needs `MASSIVE_API_KEY` (free tier available). Wraps one endpoint (`/v2/reference/news`); quotes/aggregates stay on the market-data backends. Additive — port 8770. | [README](mcp_servers/news_connector/README.md) · [AGENTS](mcp_servers/news_connector/AGENTS.md) |
+One env var, `TRAIDER_TOOLS`, controls the exposed tool surface:
 
-`schwab_connector` and `yahoo_connector` are **mutually exclusive
-alternatives**. Every other server is **additive**. Which servers
-actually start is controlled by Docker Compose profiles — see
-[Selecting which servers to run](#selecting-which-servers-to-run)
-below.
-
-More servers (other brokers, data vendors, news/sentiment, on-chain,
-research tools) will be added over time. The pattern stays the same:
-one subdirectory per server, independently installable.
-
-## Selecting which servers to run
-
-Under Docker, **every MCP server in this hub is gated by its own
-Docker Compose profile**, and you pick which ones start via the
-comma-separated `COMPOSE_PROFILES` variable in `.env`. Services whose
-profile isn't active simply don't launch. If no profile is set,
-nothing starts (and Compose prints the list of available profiles).
-
-| Profile        | Server                    | Port | Kind                | Creds required                  |
-|----------------|---------------------------|------|---------------------|---------------------------------|
-| `schwab`       | `schwab-connector`        | 8765 | Market-data backend | Schwab app key/secret + OAuth   |
-| `yahoo`        | `yahoo-connector`         | 8765 | Market-data backend | None                            |
-| `fred`         | `fred-connector`          | 8766 | Additive (macro)    | `FRED_API_KEY` (free)           |
-| `fed-calendar` | `fed-calendar-connector`  | 8767 | Additive (macro)    | None                            |
-| `sec-edgar`    | `sec-edgar-connector`     | 8768 | Additive (filings)  | `SEC_EDGAR_USER_AGENT` (yours)  |
-| `factor`       | `factor-connector`        | 8771 | Additive (factors)  | None                            |
-| `treasury`     | `treasury-connector`      | 8772 | Additive (Treasury) | None                            |
-| `news`         | `news-connector`          | 8770 | Additive (news)     | `MASSIVE_API_KEY` (free tier)   |
-
-Rules of thumb:
-
-- **Pick one market-data backend** (`schwab` *or* `yahoo`). They
-  expose the same tool names and both bind 8765, so running both
-  would make the second one fail to start.
-- **Add any mix of additive profiles.** `fred`, `fed-calendar`,
-  `sec-edgar`, `factor`, `treasury`, and `news` expose distinct tool
-  names and distinct ports, so they compose freely with each other
-  and with either market-data backend.
-
-Examples:
-
-```bash
-COMPOSE_PROFILES=schwab                                    # just Schwab quotes/accounts
-COMPOSE_PROFILES=yahoo                                     # just Yahoo quotes
-COMPOSE_PROFILES=yahoo,fred,fed-calendar,sec-edgar,factor,treasury,news  # Yahoo + full macro + fundamentals + factors + Treasury + news
-COMPOSE_PROFILES=schwab,sec-edgar                          # Schwab + EDGAR filings/insiders
-COMPOSE_PROFILES=yahoo,factor                              # Yahoo + Fama-French factors
+```
+TRAIDER_TOOLS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 ```
 
-Then from the repo root:
+| Profile        | Tool group                        | Creds required                  |
+|----------------|-----------------------------------|---------------------------------|
+| `schwab`       | Schwab market data + accounts     | Schwab app key/secret + OAuth   |
+| `yahoo`        | Yahoo Finance market data         | None                            |
+| `fred`         | FRED macro / release calendar     | `FRED_API_KEY` (free)           |
+| `fed-calendar` | FOMC meeting calendar             | None                            |
+| `sec-edgar`    | SEC filings, insiders, 13F, XBRL  | `SEC_EDGAR_USER_AGENT` (yours)  |
+| `factor`       | Ken French factors + industries   | None                            |
+| `treasury`     | Treasury auctions, DTS, debt      | None                            |
+| `news`         | Massive news + sentiment          | `MASSIVE_API_KEY` (free tier)   |
 
-```bash
-docker compose up -d
-```
+Rules:
 
-Compose auto-loads `./.env` from the project directory, so no
-`--env-file` flag is needed.
+- **Pick at most one market-data backend** (`schwab` *or* `yahoo`).
+  They expose the same tool names and are mutually exclusive; enabling
+  both at once is a startup error.
+- **Add any mix of the other profiles.** They expose distinct tool
+  names, so they compose freely with each other and with whichever
+  market-data backend you chose.
 
-**For host mode (no Docker), there is no profile system** — you just
-`pip install` and launch the binaries you want. Profiles only matter
-when you're running under Compose. See
-[Run on the host](#run-on-the-host-alternative) for that path.
+If `TRAIDER_TOOLS` is empty, the server starts with no tools
+registered — useful for smoke-testing the transport but not for
+actual work.
 
 ### Choosing a market-data backend
 
-`schwab_connector` and `yahoo_connector` expose the **same tool names**
-(`get_quote`, `get_price_history`, `run_technical_analysis`,
-`analyze_*`, …) so prompts are portable. They differ only in where
-the data comes from and what's not available:
+`schwab` and `yahoo` expose the **same tool names** (`get_quote`,
+`get_price_history`, `run_technical_analysis`, `analyze_*`, …) so
+prompts are portable. They differ only in where the data comes from
+and what's not available:
 
-|                              | `schwab_connector`                          | `yahoo_connector`                            |
+|                              | `schwab`                                    | `yahoo`                                      |
 |------------------------------|---------------------------------------------|----------------------------------------------|
 | Account needed               | Schwab developer account (app approval)     | None                                         |
 | Auth flow                    | One-time OAuth (browser)                    | None                                         |
 | Brokerage (`get_accounts`)   | ✅ real positions, cost basis, P&L          | ❌ raises — no brokerage                      |
 | Market hours (`get_market_hours`) | ✅ authoritative, holiday-aware        | ❌ raises — Yahoo has no such endpoint        |
 | Movers                       | per-index (`$SPX`, `$DJI`, …)               | US-market-wide Yahoo screeners               |
-| Option chains (`get_option_chain`) | ✅ Greeks, strategy previews, real-time | ⚠️ delayed ~15min, no Greeks, `SINGLE` only  |
+| Option chains                | ✅ Greeks, strategy previews, real-time     | ⚠️ delayed ~15min, no Greeks, `SINGLE` only  |
 | Intraday history depth       | Long (years of minute bars)                 | Short (~7d for 1m, ~60d for sub-hourly)      |
 | Data freshness               | Real-time during RTH (Schwab entitlement)   | Typically delayed ~15 min                    |
 | Unofficial endpoint?         | No — stable, paid, documented API           | Yes — `yfinance` scrapes; expect drift       |
 
-**Only one backend runs at a time** — they both bind port 8765. Pick
-it by putting exactly one of `schwab` or `yahoo` in
-`COMPOSE_PROFILES` (see
-[Selecting which servers to run](#selecting-which-servers-to-run)
-for the full profile mechanics, including combining with additive
-servers).
-
-For host mode (non-Docker), the backend is simply whichever binary
-you run — `schwab-connector` or `yahoo-connector`. Don't start both
-(same port).
-
 ## Quickstart
 
-You'll install or run one or more MCP servers, start each one, and
-point your AI CLI at them. Each server's own `README.md` has the full
-setup — the steps below are the short path for the Schwab connector.
-
-The flow is:
-
-1. **Configure credentials** (shared by both run modes).
-2. **Run the server(s)** — either with [Docker](#run-with-docker-recommended)
+1. **Configure credentials** in `.env`.
+2. **Run the server** — with [Docker](#run-with-docker-recommended)
    (recommended) or [directly on the host](#run-on-the-host-alternative).
 3. **[Wire the server into your AI CLI](#connect-your-ai-cli).**
 
 ### Configure credentials
 
-Both run modes read credentials from a `.env` at the repo root
-(gitignored, loaded on startup). Compose auto-loads it from the
-project directory (`./.env`) — no `--env-file` flag needed — and
-uses `COMPOSE_PROFILES` from that file to decide which servers to
-start (see
-[Selecting which servers to run](#selecting-which-servers-to-run)).
-
-Start from the template:
+Copy the template and edit:
 
 ```bash
 cp .env.dist .env
 ```
 
-Then edit. The file has entries for every server the hub knows about;
-each is only consulted if its profile is in `COMPOSE_PROFILES`:
+Set `TRAIDER_TOOLS` to the tool groups you want, plus credentials
+for the profiles that need them:
 
 ```
-# One market-data backend + any mix of additive servers.
-COMPOSE_PROFILES=schwab,fred,fed-calendar,sec-edgar
+TRAIDER_TOOLS=schwab,fred,fed-calendar,sec-edgar
 
-# Schwab-only — ignored unless `schwab` is in COMPOSE_PROFILES.
+# schwab profile only.
 SCHWAB_APP_KEY=...
 SCHWAB_APP_SECRET=...
 SCHWAB_CALLBACK_URL=https://127.0.0.1
 
-# FRED-only — ignored unless `fred` is in COMPOSE_PROFILES.
+# fred profile only.
 FRED_API_KEY=...
 
-# EDGAR-only — ignored unless `sec-edgar` is in COMPOSE_PROFILES.
+# sec-edgar profile only.
 SEC_EDGAR_USER_AGENT=your-name you@example.com
 ```
 
-The Yahoo and FOMC-calendar servers need no credentials. Never commit
-`.env` or paste its contents into logs or chat.
+The `yahoo`, `fed-calendar`, `factor`, and `treasury` profiles need no
+credentials. Never commit `.env` or paste its contents into logs or
+chat.
 
 ### Run with Docker (recommended)
 
-Each MCP server ships a `Dockerfile` next to its code, and
-`docker-compose.yml` at the repo root wires them all together. You
-skip installing conda and the C deps (TA-Lib, …) on your host.
-
-All Docker commands below run from the repo root. Compose auto-loads
-`./.env`, so no `--env-file` flag is required.
-
-**1. Build the image(s)**
-
-Only the backend your profile selects needs building — but building
-all of them is cheap and lets you switch by flipping
-`COMPOSE_PROFILES` without another `build`:
+One image, one service, one port. You skip installing conda + the
+TA-Lib C library on your host.
 
 ```bash
-docker compose --profile schwab --profile yahoo build
-```
+# Build once (or after a Dockerfile / pyproject.toml change):
+docker compose build
 
-**2. One-time OAuth (Schwab only)**
+# (Schwab profile only) one-time interactive OAuth:
+docker compose run --rm traider traider auth schwab
 
-Skip this step entirely on the Yahoo backend — yfinance is
-unauthenticated.
-
-For Schwab, run the auth subcommand interactively. The token file is
-written to `~/.schwab-connector/` on the host (mounted into the
-container), so a later `docker compose up` reuses it, and so does the
-host `schwab-connector` CLI if you also use it outside Docker.
-
-```bash
-docker compose run --rm schwab-connector schwab-connector auth
-```
-
-You'll paste the Schwab callback URL back into the terminal, same as
-the non-Docker flow (the container never has to receive the callback
-itself — it's a copy-paste from your browser).
-
-**3. Start the servers**
-
-```bash
+# Start the server:
 docker compose up -d
 ```
 
-Only the service whose profile matches `COMPOSE_PROFILES` starts. It
-exposes its MCP endpoint on:
+The MCP endpoint is exposed at `http://localhost:8765/mcp`. Per-
+connector log files land in `./logs/` on the host
+(`schwab.log`, `fred.log`, …) plus an aggregated `traider.log`.
 
-| Server                    | URL                     |
-|---------------------------|-------------------------|
-| `schwab-connector`        | `http://localhost:8765` |
-| `yahoo-connector`         | `http://localhost:8765` |
-| `fred-connector`          | `http://localhost:8766` |
-| `fed-calendar-connector`  | `http://localhost:8767` |
-| `sec-edgar-connector`     | `http://localhost:8768` |
-| `factor-connector`        | `http://localhost:8771` |
-| `treasury-connector`      | `http://localhost:8772` |
-| `news-connector`          | `http://localhost:8770` |
-
-`schwab-connector` and `yahoo-connector` both bind 8765 — that's why
-only one runs at a time. `fred-connector` and `fed-calendar-connector`
-are additive and come up alongside whichever market-data backend your
-profile selected. Wire each URL into your AI CLI using the **HTTP**
-examples in [Connect your AI CLI](#connect-your-ai-cli) below. Logs
-land in `./logs/` on the host.
-
-**4. Stop / switch / rebuild**
-
-```bash
-docker compose down       # stop whatever's running
-# switch backends: edit COMPOSE_PROFILES in .env, then:
-docker compose up -d
-docker compose build --no-cache   # after Dockerfile changes
-```
+Switch profile mix: edit `TRAIDER_TOOLS` in `.env`, then
+`docker compose restart`. No rebuild needed unless deps changed.
 
 ### Run on the host (alternative)
 
-If you'd rather run servers directly on your machine — no Docker —
-use a shared conda env.
-
-**1. Create the conda env**
-
-All Python in this repo uses a conda env named `traider`, pinned to
-Python 3.13:
+No Docker. Use a conda env because TA-Lib needs the native C library.
 
 ```bash
-conda create -n traider python=3.13
+conda create -n traider -c conda-forge -y python=3.13 ta-lib
 conda activate traider
+pip install -e .
+
+# Schwab-only: one-time browser OAuth.
+traider auth schwab
+
+# Start the server (profiles come from $TRAIDER_TOOLS).
+traider --transport streamable-http --port 8765
+# or stdio:
+traider --transport stdio
 ```
-
-**2. Install the backend you want**
-
-```bash
-# Schwab (needs developer account + OAuth):
-pip install -e ./mcp_servers/schwab_connector
-
-# or — Yahoo (no account, no auth):
-pip install -e ./mcp_servers/yahoo_connector
-```
-
-Install only one. They bind the same port and provide the same tool
-names — having both on PATH is fine, but only run one at a time.
-
-**3. Auth (Schwab only), then run the server**
-
-Schwab:
-
-```bash
-schwab-connector auth    # one-time browser OAuth flow
-schwab-connector         # starts the MCP server on stdio
-```
-
-Yahoo:
-
-```bash
-yahoo-connector          # starts the MCP server on stdio — no auth
-```
-
-Or over HTTP for remote MCP clients:
-
-```bash
-schwab-connector --transport streamable-http --port 8765
-# or
-yahoo-connector --transport streamable-http --port 8765
-```
-
-Then see [Connect your AI CLI](#connect-your-ai-cli) — use the
-**stdio** form for a direct host run, or the **HTTP** form when you
-start the server with `--transport streamable-http`.
 
 ## Connect your AI CLI
 
-Once a server is running — either on the host (stdio) or in Docker
-(HTTP on `localhost:8765/mcp`) — register it with your CLI using one
-of the recipes below. Examples use the Schwab connector; swap the
-name/URL for any other server in the hub.
+The server exposes a single MCP endpoint. Register it once; the tools
+available are whatever profiles you enabled in `TRAIDER_TOOLS`.
 
 ### Claude Code
 
-`claude mcp add` writes to your Claude config; no JSON editing. Add
-`--scope user` to make it available across all projects, or
-`--scope project` to check it into `.mcp.json` for teammates. Default
-scope (`local`) is this project only.
-
-**Stdio (host install):**
-
 ```bash
-claude mcp add --transport stdio schwab-connector -- schwab-connector
+# HTTP (Docker, or any streamable-http run):
+claude mcp add --transport http traider http://localhost:8765/mcp
+
+# Stdio (host install):
+claude mcp add --transport stdio traider -- traider --transport stdio
 ```
 
-The `--` separates `claude mcp add` flags from the command that
-launches the server.
-
-**HTTP (Docker, or any streamable-http server):**
-
-```bash
-claude mcp add --transport http schwab-connector http://localhost:8765/mcp
-```
-
-Use `--header "Authorization: Bearer …"` if the endpoint needs auth
-(the servers in this hub don't).
-
-Verify with `claude mcp list`, then restart the CLI session.
+Add `--scope user` for cross-project or `--scope project` to check it
+into `.mcp.json`. Verify with `claude mcp list`.
 
 ### OpenCode
 
-Edit `opencode.json` in the repo root (project-local) or
-`~/.config/opencode/opencode.json` (user-wide). MCP servers live
-under the top-level `mcp` key.
-
-**Stdio (host install):**
+`opencode.json` (project) or `~/.config/opencode/opencode.json`
+(user):
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "schwab-connector": {
-      "type": "local",
-      "command": ["schwab-connector"],
-      "enabled": true
-    }
-  }
-}
-```
-
-**HTTP (Docker, or any streamable-http server):**
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "schwab-connector": {
+    "traider": {
       "type": "remote",
       "url": "http://localhost:8765/mcp",
       "enabled": true
@@ -388,45 +207,25 @@ under the top-level `mcp` key.
 }
 ```
 
-Use `{env:VAR_NAME}` inside `headers` for auth tokens when you need
-them.
+Stdio variant: `"type": "local", "command": ["traider", "--transport", "stdio"]`.
 
 ### Gemini CLI
 
-Edit `.gemini/settings.json` in the repo root (project) or
-`~/.gemini/settings.json` (user). MCP servers live under
-`mcpServers`.
-
-**Stdio (host install):**
+`.gemini/settings.json` (project) or `~/.gemini/settings.json` (user):
 
 ```json
 {
   "mcpServers": {
-    "schwab-connector": {
-      "command": "schwab-connector"
-    }
-  }
-}
-```
-
-If the server needs env vars injected, use `"env": { "KEY": "$KEY" }`
-— Gemini CLI does **not** auto-load `.env`, so either export the
-vars in your shell first or put the literal values in `env`.
-
-**HTTP (Docker, or any streamable-http server):**
-
-```json
-{
-  "mcpServers": {
-    "schwab-connector": {
+    "traider": {
       "httpUrl": "http://localhost:8765/mcp"
     }
   }
 }
 ```
 
-Add `"headers": { "Authorization": "Bearer $TOKEN" }` if the endpoint
-requires auth.
+Stdio variant: `"command": "traider", "args": ["--transport", "stdio"]`.
+Gemini CLI does not auto-load `.env` — export vars in your shell or
+list them under `"env"` in the server entry.
 
 ## What this hub will and won't do
 
@@ -440,4 +239,4 @@ requires auth.
   Store credentials in the repo or in logs.
 
 See [AGENTS.md](AGENTS.md) for the full set of hub-wide constraints
-(which every MCP server in this repo inherits).
+(which every connector module inherits).

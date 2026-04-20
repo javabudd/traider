@@ -17,7 +17,7 @@ class TraiderSettings:
     Attributes:
         profiles: Ordered tuple of enabled profile names (e.g.
             ``("schwab", "fred", "news")``). Driven by
-            ``TRAIDER_PROFILES`` (comma-separated).
+            ``TRAIDER_TOOLS`` (comma-separated).
         log_dir: Base directory for per-connector log files. Each
             connector writes to ``<log_dir>/<profile>.log``. Override
             with ``TRAIDER_LOG_DIR`` (default: ``logs/`` in cwd).
@@ -49,7 +49,7 @@ def _parse_profiles(raw: str | None) -> tuple[str, ...]:
 
 def load_settings() -> TraiderSettings:
     """Build a ``TraiderSettings`` from the current process env."""
-    profiles = _parse_profiles(os.environ.get("TRAIDER_PROFILES"))
+    profiles = _parse_profiles(os.environ.get("TRAIDER_TOOLS"))
     log_dir = Path(os.environ.get("TRAIDER_LOG_DIR", "logs")).resolve()
     return TraiderSettings(
         profiles=profiles,

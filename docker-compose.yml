@@ -1,9 +1,9 @@
 # traider — unified MCP server hub
 #
 # One image, one service, one port. Which tool groups are exposed is
-# controlled by TRAIDER_PROFILES in ./.env. Example:
+# controlled by TRAIDER_TOOLS in ./.env. Example:
 #
-#   TRAIDER_PROFILES=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
+#   TRAIDER_TOOLS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 #
 # Valid profile names: schwab, yahoo, fred, fed-calendar, sec-edgar,
 # factor, treasury, news. schwab and yahoo are mutually exclusive

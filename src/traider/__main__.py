@@ -4,7 +4,7 @@ Subcommands:
 
 - ``traider`` (default) — run the MCP server over the transport / host /
   port given on the CLI. Profiles to load are read from the
-  ``TRAIDER_PROFILES`` env var.
+  ``TRAIDER_TOOLS`` env var.
 - ``traider auth schwab`` — one-shot interactive Schwab OAuth flow.
   Writes the token file consumed at server startup when the ``schwab``
   profile is active.

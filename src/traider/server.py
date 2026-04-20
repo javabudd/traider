@@ -1,9 +1,9 @@
 """FastMCP server that lazy-loads connector modules by profile.
 
 One server, one port, one MCP surface. Which tools are exposed is
-controlled at startup by ``TRAIDER_PROFILES`` in the environment:
+controlled at startup by ``TRAIDER_TOOLS`` in the environment:
 
-    TRAIDER_PROFILES=schwab,fred,sec-edgar,factor,treasury,news
+    TRAIDER_TOOLS=schwab,fred,sec-edgar,factor,treasury,news
 
 Each name maps to a connector module under ``traider.connectors``.
 The module exposes ``register(mcp, settings)`` which installs its
@@ -59,7 +59,7 @@ def _validate_profiles(profiles: tuple[str, ...]) -> None:
     unknown = [p for p in profiles if p not in PROFILES]
     if unknown:
         raise SystemExit(
-            f"unknown TRAIDER_PROFILES entries: {unknown}. "
+            f"unknown TRAIDER_TOOLS entries: {unknown}. "
             f"valid names: {sorted(PROFILES)}"
         )
     backends = [p for p in profiles if p in MARKET_DATA_PROFILES]
@@ -123,7 +123,7 @@ def main() -> None:
 
     if not settings.profiles:
         logger.warning(
-            "TRAIDER_PROFILES is empty — no connectors will be loaded"
+            "TRAIDER_TOOLS is empty — no connectors will be loaded"
         )
 
     _validate_profiles(settings.profiles)

@@ -8,10 +8,11 @@ re-deriving them.
 
 ## What this repo is
 
-`traider` is a **central hub for using an AI CLI to gain financial
-insights and help make trading decisions**. It is not a bot, not a
-broker, and not a standalone tool — it is a collection of **MCP
-servers** that the user starts alongside an AI CLI so the model can:
+`traider` is a **single MCP server** that acts as a central hub for
+using an AI CLI to gain financial insights and help make trading
+decisions. It is not a bot, not a broker, and not a standalone tool
+— it is one process, exposing a set of read-only tools, that the user
+starts alongside an AI CLI so the model can:
 
 - **Fetch** market data, account data, and fundamentals from brokerage
   and data-vendor APIs.
@@ -31,8 +32,8 @@ compute, and explain, not to trade.
 When the user asks a trading question, **don't just call the one MCP
 tool that literally answers it**. Use trading intuition to decide what
 other context a well-grounded recommendation needs, then either pull
-it via the available MCP servers or ask the user the clarifying
-questions that would let you pull it.
+it via the available tools or ask the user the clarifying questions
+that would let you pull it.
 
 A good answer almost always considers more than the literal ask:
 
@@ -58,15 +59,16 @@ on any decision.
 The "don't be a passive router" rule is only operational if you know
 what context to reach for. These are minimum sets — pull more when the
 question warrants it, and ask the user before guessing at missing
-framing.
+framing. Tools are listed with their owning **profile** (see
+[Profiles](#profiles-one-server-many-tool-groups)).
 
 | Question shape | Minimum tools to consult |
 |---|---|
-| *"Should I buy / sell / hold X?"* | quote + price history + TA (market-data backend), recent filings and insider activity (`sec_edgar`), factor exposure (`factor`), recent headlines + sentiment (`news`), upcoming catalysts (`fed_calendar`, `fred` release schedule), existing position + correlation to book (`schwab`, if account-linked) |
+| *"Should I buy / sell / hold X?"* | quote + price history + TA (`schwab`/`yahoo`), recent filings and insider activity (`sec-edgar`), factor exposure (`factor`), recent headlines + sentiment (`news`), upcoming catalysts (`fed-calendar`, `fred` release schedule), existing position + correlation to book (`schwab`, if account-linked) |
 | *"How is my portfolio doing?"* (Schwab backend) | `get_accounts`, per-position returns/volatility, correlation matrix across holdings, benchmark comparison, factor exposure of the book |
-| *"What's the macro setup right now?"* | upcoming high-impact releases (`fred`), next FOMC (`fed_calendar`), recent auction demand + TGA cash (`treasury`), yield curve (`fred` `DGS*`) |
-| *"Explain this move in X."* | price history around the move (market-data), 8-Ks / filings in the window (`sec_edgar`), headlines + sentiment in the window (`news`), sector / factor returns same window (`factor`), any macro release that day (`fred`) |
-| *"Is X overvalued / undervalued?"* | XBRL company facts (`sec_edgar`), industry portfolio returns (`factor`), price history + relative strength (market-data) |
+| *"What's the macro setup right now?"* | upcoming high-impact releases (`fred`), next FOMC (`fed-calendar`), recent auction demand + TGA cash (`treasury`), yield curve (`fred` `DGS*`) |
+| *"Explain this move in X."* | price history around the move (`schwab`/`yahoo`), 8-Ks / filings in the window (`sec-edgar`), headlines + sentiment in the window (`news`), sector / factor returns same window (`factor`), any macro release that day (`fred`) |
+| *"Is X overvalued / undervalued?"* | XBRL company facts (`sec-edgar`), industry portfolio returns (`factor`), price history + relative strength (`schwab`/`yahoo`) |
 
 If the question doesn't fit any of these cleanly, that's a cue to ask
 a clarifying question before pulling data — not to invent a framing.
@@ -99,68 +101,68 @@ with citations, because the user can't tell what to sanity-check.
   volatility, or regression, state the window and that it describes
   the past. Don't project it forward without saying so.
 
-## How the hub is organized
+## Profiles: one server, many tool groups
 
-The repo is a collection of MCP servers under `mcp_servers/`. Each
-server is independently installable and independently runnable:
+The hub is a single MCP server (`src/traider/`) whose tool surface is
+gated at startup by the `TRAIDER_TOOLS` env var. Each profile
+corresponds to a module under `src/traider/connectors/<name>/` that
+exposes a `register(mcp, settings)` function. Only the profiles named
+in `TRAIDER_TOOLS` are imported, so disabled profiles don't load
+their third-party deps.
 
-```
-traider/
-├── AGENTS.md                 # ← you are here (hub north star)
-├── README.md                 # quick setup + list of servers
-├── mcp_servers/
-│   ├── schwab_connector/        # Schwab Trader API (quotes, history,
-│   │                            #   TA, movers, fundamentals, hours,
-│   │                            #   accounts, analytics)
-│   ├── yahoo_connector/         # Yahoo Finance alternative — same tool
-│   │                            #   surface, no account needed, no
-│   │                            #   brokerage data
-│   ├── fred_connector/          # FRED (St. Louis Fed) macro data:
-│   │                            #   release calendar, series,
-│   │                            #   metadata
-│   ├── fed_calendar_connector/  # FOMC meeting dates scraped from
-│   │                            #   federalreserve.gov (primary source)
-│   ├── sec_edgar_connector/     # SEC EDGAR: filings, Form 4 insider
-│   │                            #   transactions, 13F holdings, XBRL
-│   │                            #   company facts
-│   ├── factor_connector/        # Ken French Data Library: Fama-French
-│   │                            #   factors, momentum, industry
-│   │                            #   portfolios (disk-cached)
-│   ├── treasury_connector/      # US Treasury Fiscal Data: auction
-│   │                            #   results, Daily Treasury Statement
-│   │                            #   (TGA), debt-to-the-penny
-│   └── news_connector/          # Massive news API: ticker-scoped
-│                                #   headlines + sentiment insights
-└── logs/                     # runtime logs (cwd-relative per server)
-```
+### Known profiles
 
-More servers will be added over time (other brokers, data vendors,
-news/sentiment sources, on-chain feeds, research tools, etc.). The
-pattern is always the same: one subdirectory per server, each with its
-own `pyproject.toml`, `AGENTS.md`, `README.md`, and `src/<package>/`.
+| Profile        | Tool group                                                         | Details                                                                                   |
+|----------------|--------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| `schwab`       | Schwab Trader API: quotes, history, TA, movers, accounts, analytics | [README](src/traider/connectors/schwab/README.md) · [AGENTS](src/traider/connectors/schwab/AGENTS.md) |
+| `yahoo`        | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](src/traider/connectors/yahoo/README.md) · [AGENTS](src/traider/connectors/yahoo/AGENTS.md) |
+| `fred`         | FRED (St. Louis Fed): economic-release calendar, series metadata, observations | [README](src/traider/connectors/fred/README.md) · [AGENTS](src/traider/connectors/fred/AGENTS.md) |
+| `fed-calendar` | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source) | [README](src/traider/connectors/fed_calendar/README.md) · [AGENTS](src/traider/connectors/fed_calendar/AGENTS.md) |
+| `sec-edgar`    | SEC EDGAR: 10-K/10-Q/8-K, Form 4 insiders, 13F holdings, XBRL facts / frames | [README](src/traider/connectors/sec_edgar/README.md) · [AGENTS](src/traider/connectors/sec_edgar/AGENTS.md) |
+| `factor`       | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, industry portfolios | [README](src/traider/connectors/factor/README.md) · [AGENTS](src/traider/connectors/factor/AGENTS.md) |
+| `treasury`     | US Treasury Fiscal Data: auction results, Daily Treasury Statement (TGA), debt-to-the-penny | [README](src/traider/connectors/treasury/README.md) · [AGENTS](src/traider/connectors/treasury/AGENTS.md) |
+| `news`         | Massive news API: ticker-scoped headlines + per-article sentiment insights | [README](src/traider/connectors/news/README.md) · [AGENTS](src/traider/connectors/news/AGENTS.md) |
+
+**`schwab` and `yahoo` are mutually exclusive.** They expose the same
+tool names; the server refuses to start with both enabled. Everything
+else is additive — they expose distinct names and compose freely.
+
+When a user's prompt implies tools that the currently-loaded market-
+data backend can't serve (e.g. `get_accounts` on the Yahoo backend),
+suggest they switch backends rather than trying to work around the
+gap. When a question has a dimension no enabled profile covers
+(macro calendar, filings, factor exposure, Treasury primary-source,
+news), suggest they add the relevant profile to `TRAIDER_TOOLS`
+rather than making up numbers.
+
+**Routing note — yield curve lives on `fred`.** FRED mirrors the H.15
+Daily Treasury Yield Curve in full (`DGS1MO` … `DGS30`, `DFII*` for
+TIPS real yields). `treasury` does **not** expose a yield-curve tool
+and should not be expected to; it covers the Treasury datasets FRED
+doesn't carry at useful granularity (auctions, DTS, debt-to-the-penny).
 
 ## Where to look when a user asks about a capability
 
-1. **Check which server owns it.** Look at `mcp_servers/*/README.md` —
-   each server's README begins with a "What this MCP server can do"
-   section listing every tool it exposes.
-2. **Then check that server's `AGENTS.md`** for the constraints,
+1. **Check which profile owns it.** Look at
+   `src/traider/connectors/<name>/README.md` — each starts with a
+   "What this connector can do" section listing every tool.
+2. **Then check that connector's `AGENTS.md`** for the constraints,
    gotchas, and conventions specific to it (OAuth flows, symbology,
    rate limits, warmup behavior, C-library dependencies, …).
 3. **Only drop into the code** for the specifics of an implementation
    you're about to change.
 
-Do *not* generalize constraints from one server to another. A rule
+Do *not* generalize constraints from one connector to another. A rule
 that holds for the Schwab connector (e.g. "treat the refresh token as
-sensitive") may not apply — or may apply differently — to a future
-data-vendor server that uses a static API key.
+sensitive") may not apply — or may apply differently — to a data-
+vendor connector that uses a static API key.
 
 ## Hub-wide hard constraints
 
-These apply to **every** MCP server in this repo. Per-server
+These apply to **every** connector module in this repo. Per-connector
 `AGENTS.md` files add more on top, but never relax these.
 
-- **Read-only.** No server in this hub performs writes to an external
+- **Read-only.** No tool in this hub performs writes to an external
   system (orders, alerts, account changes, posts, …). If a feature
   request implies writes, push back and discuss scope before
   implementing.
@@ -186,75 +188,32 @@ These apply to **every** MCP server in this repo. Per-server
   this repo. The same applies to tickers, CUSIPs, CIKs, and FRED
   series IDs — look them up, don't guess.
 
-## Don't start MCP servers yourself
+## Don't start the server yourself
 
-The user runs each MCP server in a separate terminal and wires it
-into their AI CLI themselves. As the model, you should assume the
-servers are already running (or that the user will start them). If a
-tool call fails because a server isn't up, say so and stop — do not
-try to spawn, background, or restart the server from inside a tool
-call. The same applies to any interactive OAuth flows a server
-exposes (e.g. `schwab-connector auth`).
+The user runs the `traider` MCP server in a separate terminal and
+wires it into their AI CLI themselves. As the model, you should
+assume the server is already running (or that the user will start
+it). If a tool call fails because the server isn't up, say so and
+stop — do not try to spawn, background, or restart it from inside a
+tool call. The same applies to interactive OAuth flows (`traider auth
+schwab`).
 
-## Adding a new MCP server
+## Adding a new connector
 
-When adding a new MCP server to the hub, mirror the `schwab_connector`
-layout:
+When adding a new connector (e.g. another broker, a news/sentiment
+source, an on-chain feed):
 
 ```
-mcp_servers/<name>/
-├── AGENTS.md          # per-server constraints and gotchas
-├── README.md          # tool surface + setup
-├── pyproject.toml     # independent deps and console script
-└── src/<name>/        # package
+src/traider/connectors/<name>/
+├── AGENTS.md          # per-connector constraints and gotchas
+├── README.md          # tool surface + any setup specific to this profile
+├── __init__.py
+├── <client>.py        # thin client over the upstream API
+└── tools.py           # def register(mcp, settings) — installs @mcp.tool()s
 ```
 
-Install independently (`pip install -e ./mcp_servers/<name>`) so
-servers can have incompatible deps without blocking each other.
-
-## Known MCP servers
-
-| Server                                                         | Purpose                                                            | Details                                                            |
-|----------------------------------------------------------------|--------------------------------------------------------------------|--------------------------------------------------------------------|
-| [`schwab_connector`](mcp_servers/schwab_connector)             | Schwab Trader API: quotes, history, TA, movers, accounts, analytics | [README](mcp_servers/schwab_connector/README.md) · [AGENTS](mcp_servers/schwab_connector/AGENTS.md) |
-| [`yahoo_connector`](mcp_servers/yahoo_connector)               | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](mcp_servers/yahoo_connector/README.md) · [AGENTS](mcp_servers/yahoo_connector/AGENTS.md) |
-| [`fred_connector`](mcp_servers/fred_connector)                 | FRED (St. Louis Fed): economic-release calendar, series metadata, observation time-series (CPI, NFP, GDP, PCE, …) | [README](mcp_servers/fred_connector/README.md) · [AGENTS](mcp_servers/fred_connector/AGENTS.md) |
-| [`fed_calendar_connector`](mcp_servers/fed_calendar_connector) | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source) | [README](mcp_servers/fed_calendar_connector/README.md) · [AGENTS](mcp_servers/fed_calendar_connector/AGENTS.md) |
-| [`sec_edgar_connector`](mcp_servers/sec_edgar_connector)       | SEC EDGAR: company filings (10-K/10-Q/8-K), Form 4 insider transactions, 13F institutional holdings, XBRL company facts and cross-sectional frames | [README](mcp_servers/sec_edgar_connector/README.md) · [AGENTS](mcp_servers/sec_edgar_connector/AGENTS.md) |
-| [`factor_connector`](mcp_servers/factor_connector)             | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, and 5–49-industry portfolios (monthly + daily). Disk-cached, no credentials | [README](mcp_servers/factor_connector/README.md) · [AGENTS](mcp_servers/factor_connector/AGENTS.md) |
-| [`treasury_connector`](mcp_servers/treasury_connector)         | US Treasury Fiscal Data: securities auction results (bid-to-cover, dealer takedown, stop-out yield), Daily Treasury Statement (TGA + cash flows), debt-to-the-penny. No credentials. Yield curve routes to `fred_connector` | [README](mcp_servers/treasury_connector/README.md) · [AGENTS](mcp_servers/treasury_connector/AGENTS.md) |
-| [`news_connector`](mcp_servers/news_connector)                 | Massive news API: ticker-scoped headlines with publisher metadata and per-article sentiment insights. Needs `MASSIVE_API_KEY`. Wraps one endpoint (`/v2/reference/news`); quotes/aggregates stay on the market-data backends | [README](mcp_servers/news_connector/README.md) · [AGENTS](mcp_servers/news_connector/AGENTS.md) |
-
-**Market-data backends are mutually exclusive.** `schwab_connector`
-and `yahoo_connector` expose identical tool names and both bind port
-8765, so only one runs at a time. The chosen backend is controlled by
-`COMPOSE_PROFILES` in `.env` (for Docker) or by which binary the user
-runs (for host-mode). When a user's prompt implies tools that the
-currently-loaded backend can't serve (e.g. `get_accounts` on the
-Yahoo backend), suggest they switch backends rather than trying to
-work around the gap — see the README's
-[Choosing a market-data backend](../README.md#choosing-a-market-data-backend)
-section for the full capability matrix.
-
-**`fred_connector`, `fed_calendar_connector`, `sec_edgar_connector`,
-`factor_connector`, `treasury_connector`, and `news_connector` are
-additive.** They expose different tool names, bind different ports
-(8766 / 8767 / 8768 / 8770 / 8771 / 8772), and run alongside either
-market-data backend. When a question has a macro dimension (release
-calendar, FOMC timing, long-run macro series), a fundamentals /
-filings / insider / 13F dimension, a factor-model dimension
-(Fama-French exposures, industry-level context, factor attribution),
-a Treasury-primary-source dimension (auction demand, TGA cash flows,
-daily debt outstanding), or a catalyst / news dimension (recent
-headlines, sentiment around a move), reach for these even if the
-primary ask is about an equity — that's the "don't be a passive
-router" rule from the top of this document.
-
-**Routing note — yield curve lives on `fred_connector`.** FRED
-mirrors the H.15 Daily Treasury Yield Curve in full (`DGS1MO` …
-`DGS30`, `DFII*` for TIPS real yields). `treasury_connector` does
-**not** expose a yield-curve tool and should not be expected to; it
-covers the Treasury datasets FRED doesn't carry at useful
-granularity (auctions, DTS, debt-to-the-penny).
-
-Add new rows here as servers land.
+Then wire the profile name in `src/traider/server.py`
+(`PROFILES` map). If the connector introduces a new third-party
+dependency, add it to the top-level `pyproject.toml` — but keep the
+heavy imports *inside* the `tools.py` module, not at package
+`__init__`, so unused profiles don't pay the load cost.
