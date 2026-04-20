@@ -13,7 +13,9 @@ monthly=12, 1-min RTH≈98280).
 from __future__ import annotations
 
 import math
+from datetime import date as _date, datetime, time, timedelta
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -447,6 +449,169 @@ def pair_spread(
     })
 
 
+# ---------- session ranges (Asia / London / New York) -----------------
+
+
+_UTC = ZoneInfo("UTC")
+
+
+def _parse_hm(hm: str) -> time:
+    h, m = hm.split(":")
+    return time(int(h), int(m))
+
+
+def _session_day(
+    t_local: datetime,
+    start: time,
+    end: time,
+) -> _date | None:
+    """Trading date a bar contributes to for a given session window, or
+    None if the bar falls outside the window.
+
+    Sessions whose clock range wraps midnight (e.g. Asia 18:00-03:00) are
+    keyed to the date on which the session *ends* — so 22:00 on 2026-04-17
+    and 01:00 on 2026-04-18 both belong to the 2026-04-18 Asia session,
+    grouped with that day's London and New York sessions.
+    """
+    tt = t_local.time()
+    d = t_local.date()
+    if start <= end:
+        return d if start <= tt < end else None
+    if tt >= start:
+        return d + timedelta(days=1)
+    if tt < end:
+        return d
+    return None
+
+
+def _bucket_agg(bars: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not bars:
+        return None
+    highs = [float(b["high"]) for b in bars]
+    lows = [float(b["low"]) for b in bars]
+    return {
+        "high": max(highs),
+        "low": min(lows),
+        "range": max(highs) - min(lows),
+        "open": float(bars[0]["open"]),
+        "close": float(bars[-1]["close"]),
+        "n_bars": len(bars),
+        "start": int(bars[0]["datetime"]),
+        "end": int(bars[-1]["datetime"]),
+    }
+
+
+def session_ranges(
+    candles: list[dict[str, Any]],
+    asia_start: str = "18:00",
+    asia_end: str = "03:00",
+    london_start: str = "03:00",
+    london_end: str = "08:00",
+    ny_start: str = "08:00",
+    ny_end: str = "17:00",
+    timezone: str = "America/New_York",
+    tight_lookback: int = 5,
+    tight_multiplier: float = 0.7,
+) -> dict[str, Any]:
+    """Per-day Asia / London / New York session ranges with a tight-Asia
+    flag and a London-sweeps-Asia signal.
+
+    Requires intraday candles with extended-hours coverage — the Asia
+    session (defaults to 18:00-03:00 ET) lies entirely outside US RTH.
+
+    Session assignment: London and New York are keyed by the bar's local
+    date. Asia wraps midnight, so bars from the prior evening (>= the
+    Asia start time) are grouped with bars from the following morning
+    (< the Asia end time) under that following day's date.
+
+    The *tight Asia* flag compares the current session's range to the
+    rolling median of the prior ``tight_lookback`` Asia ranges. ``True``
+    when ``range < baseline * tight_multiplier``; ``None`` until the
+    lookback is filled. This is a pragmatic default, not a canonical
+    ICT definition — override the parameters if you want a different
+    convention (e.g. compare to ATR, or use a fixed dollar threshold
+    client-side).
+
+    *London sweep* flags use the strict liquidity-sweep definition: the
+    London session traded past the Asia high/low AND closed back inside
+    the Asia range. A pure breakout (took the level and closed beyond
+    it) is NOT flagged as a sweep.
+    """
+    if not candles:
+        return {"error": "no candles"}
+    tz = ZoneInfo(timezone)
+    as_s, as_e = _parse_hm(asia_start), _parse_hm(asia_end)
+    lo_s, lo_e = _parse_hm(london_start), _parse_hm(london_end)
+    ny_s, ny_e = _parse_hm(ny_start), _parse_hm(ny_end)
+
+    buckets: dict[_date, dict[str, list[dict[str, Any]]]] = {}
+    windows = (
+        ("asia", as_s, as_e),
+        ("london", lo_s, lo_e),
+        ("new_york", ny_s, ny_e),
+    )
+    for c in candles:
+        t_local = datetime.fromtimestamp(int(c["datetime"]) / 1000.0, tz=_UTC).astimezone(tz)
+        for name, start, end in windows:
+            d = _session_day(t_local, start, end)
+            if d is None:
+                continue
+            day = buckets.setdefault(d, {"asia": [], "london": [], "new_york": []})
+            day[name].append(c)
+
+    prior_asia_ranges: list[float] = []
+    days_out: list[dict[str, Any]] = []
+    for d in sorted(buckets):
+        day = buckets[d]
+        asia = _bucket_agg(day["asia"])
+        london = _bucket_agg(day["london"])
+        new_york = _bucket_agg(day["new_york"])
+
+        if asia is not None:
+            if tight_lookback > 0 and len(prior_asia_ranges) >= tight_lookback:
+                baseline = float(np.median(prior_asia_ranges[-tight_lookback:]))
+                asia["tight_baseline"] = baseline
+                asia["tight"] = asia["range"] < baseline * tight_multiplier
+            else:
+                asia["tight_baseline"] = None
+                asia["tight"] = None
+            prior_asia_ranges.append(asia["range"])
+
+        if london is not None and asia is not None:
+            swept_high = london["high"] > asia["high"] and london["close"] < asia["high"]
+            swept_low = london["low"] < asia["low"] and london["close"] > asia["low"]
+            london["swept_asia_high"] = swept_high
+            london["swept_asia_low"] = swept_low
+            sides = []
+            if swept_high:
+                sides.append("high")
+            if swept_low:
+                sides.append("low")
+            london["sweep"] = sides or None
+
+        days_out.append({
+            "date": d.isoformat(),
+            "asia": asia,
+            "london": london,
+            "new_york": new_york,
+        })
+
+    return _jsonify({
+        "timezone": timezone,
+        "sessions": {
+            "asia": f"{asia_start}-{asia_end}",
+            "london": f"{london_start}-{london_end}",
+            "new_york": f"{ny_start}-{ny_end}",
+        },
+        "tight_params": {
+            "lookback": tight_lookback,
+            "multiplier": tight_multiplier,
+        },
+        "n_days": len(days_out),
+        "days": days_out,
+    })
+
+
 __all__: Iterable[str] = [
     "returns_metrics",
     "realized_volatility",
@@ -456,4 +621,5 @@ __all__: Iterable[str] = [
     "volatility_regime",
     "rolling_zscore",
     "pair_spread",
+    "session_ranges",
 ]

@@ -688,3 +688,107 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             result["zscore"] = result["zscore"][-tail:]
         result["symbols"] = [symbol_a, symbol_b]
         return result
+
+    @mcp.tool()
+    def analyze_session_ranges(
+        symbol: str,
+        period_type: str = "day",
+        period: int = 10,
+        frequency_type: str = "minute",
+        frequency: int = 30,
+        start_date: int | None = None,
+        end_date: int | None = None,
+        need_extended_hours_data: bool = True,
+        asia_start: str = "18:00",
+        asia_end: str = "03:00",
+        london_start: str = "03:00",
+        london_end: str = "08:00",
+        ny_start: str = "08:00",
+        ny_end: str = "17:00",
+        timezone: str = "America/New_York",
+        tight_lookback: int = 5,
+        tight_multiplier: float = 0.7,
+        tail: int | None = None,
+    ) -> dict[str, Any]:
+        """Per-day Asia / London / New York session ranges with a
+        tight-Asia flag and a London-sweeps-Asia signal.
+
+        Needs intraday bars with extended-hours coverage — the Asia
+        session (default 18:00-03:00 ET) sits entirely outside US RTH,
+        so ``need_extended_hours_data`` defaults to ``True`` here.
+
+        Session windows are ``"HH:MM"`` strings interpreted in
+        ``timezone`` (default ``America/New_York``). Each day's three
+        sessions are keyed to the date the session *ends* on — so
+        previous-evening Asia bars and early-morning Asia bars roll up
+        into one Asia session for the following trading day, grouped
+        with that day's London and New York sessions.
+
+        For each day the response gives, per session, high / low /
+        range / open / close / bar count / first and last bar
+        timestamps. The Asia block adds:
+
+        - ``tight_baseline``: rolling median of the prior
+          ``tight_lookback`` Asia ranges (``null`` until filled).
+        - ``tight``: ``True`` when
+          ``range < tight_baseline * tight_multiplier``, else ``False``
+          (``null`` until the baseline is available). Pragmatic
+          default, not a canonical ICT definition — adjust
+          ``tight_lookback`` / ``tight_multiplier`` or reinterpret
+          client-side against ATR if you want a different convention.
+
+        The London block adds (only when both Asia and London sessions
+        have bars that day):
+
+        - ``swept_asia_high``: ``True`` when London's high exceeded the
+          Asia high AND London closed back below it.
+        - ``swept_asia_low``: mirror for the low.
+        - ``sweep``: list of ``"high"`` / ``"low"`` flags or ``null``.
+
+        A pure breakout (London took the level and closed beyond it) is
+        not flagged as a sweep.
+
+        Args:
+            symbol: Ticker (equities, futures, or 21-char OSI option).
+            period_type, period, frequency_type, frequency, start_date,
+            end_date, need_extended_hours_data: forwarded to
+                ``get_price_history``. Defaults pull ~10 days of 30-min
+                bars with extended hours so Asia sessions are covered.
+            asia_start/asia_end, london_start/london_end,
+            ny_start/ny_end: ``"HH:MM"`` session boundaries in
+                ``timezone``. Asia's default wraps midnight.
+            timezone: IANA zone used to bucket bars by session.
+            tight_lookback: Number of prior Asia sessions for the
+                tight-range baseline.
+            tight_multiplier: Current Asia range is tight when below
+                ``baseline * tight_multiplier``.
+            tail: If set, return only the last N days.
+        """
+        logger.info(
+            "analyze_session_ranges symbol=%s tz=%s tight_lookback=%d mult=%.2f tail=%s",
+            symbol, timezone, tight_lookback, tight_multiplier, tail,
+        )
+        try:
+            candles = _fetch_candles(
+                symbol, period_type, period, frequency_type, frequency,
+                start_date, end_date, need_extended_hours_data,
+            )
+            result = analytics.session_ranges(
+                candles,
+                asia_start=asia_start,
+                asia_end=asia_end,
+                london_start=london_start,
+                london_end=london_end,
+                ny_start=ny_start,
+                ny_end=ny_end,
+                timezone=timezone,
+                tight_lookback=tight_lookback,
+                tight_multiplier=tight_multiplier,
+            )
+        except Exception:
+            logger.exception("analyze_session_ranges failed symbol=%s", symbol)
+            raise
+        if tail is not None and tail > 0 and "days" in result:
+            result["days"] = result["days"][-tail:]
+            result["n_days"] = len(result["days"])
+        return {"symbol": symbol, **result}
