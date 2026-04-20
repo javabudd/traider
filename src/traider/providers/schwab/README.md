@@ -180,6 +180,21 @@ Useful filters:
 - `include_underlying_quote` — defaults to `true`; set `false` to
   skip the underlying block and shrink the payload.
 
+### `analyze_option_chain(symbol, wings=5, top_n=5, ...)`
+
+Bounded-size analyst view of a chain. Fetches via `get_option_chain`,
+then per expiration returns: ATM strike, ATM call + put legs
+(mark/bid/ask/IV/OI/volume and passthrough Greeks), straddle cost,
+implied one-day move (percent), implied range, IV skew across
+±`wings` strikes around ATM, and top `top_n` strikes by open interest
+and volume on each side.
+
+Raw `get_option_chain` output for a single expiration at
+`strike_count=20` easily exceeds 70k chars. `analyze_option_chain`
+compresses that to ~3–5k chars per expiration — use this when the
+caller is an LLM. Use the raw `get_option_chain` when a script needs
+per-contract fields or Schwab's strategy-aware legs.
+
 ### `get_option_expirations(symbol)`
 
 List of available expiration series for an underlying, from

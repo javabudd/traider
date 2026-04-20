@@ -16,6 +16,7 @@ from mcp.server.fastmcp import FastMCP
 from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from . import analytics
+from .options_summary import summarize_chain
 from .ta import run_indicators
 from .yahoo_client import YahooClient
 
@@ -263,6 +264,64 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             logger.exception("get_option_chain failed symbol=%s", symbol)
             raise
         return result
+
+    @mcp.tool()
+    def analyze_option_chain(
+        symbol: str,
+        contract_type: str = "ALL",
+        strike_count: int | None = 20,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        exp_month: str | None = None,
+        option_type: str | None = None,
+        range_: str | None = None,
+        wings: int = 5,
+        top_n: int = 5,
+    ) -> dict[str, Any]:
+        """Bounded-size analyst view of an option chain.
+
+        Fetches via ``get_option_chain`` and returns, per expiration:
+        ATM strike, ATM call and put legs (mark/bid/ask/IV/OI/volume),
+        straddle cost, implied one-day move as percent, implied range,
+        IV skew across ±``wings`` strikes around ATM, and the top
+        ``top_n`` strikes by open interest and volume on each side.
+
+        Use this instead of ``get_option_chain`` when you need the
+        digestible view — the raw chain for a single expiration at
+        ``strike_count=20`` can exceed 70k chars, which busts LLM
+        context. The summary is bounded by ``wings`` and ``top_n`` and
+        typically lands under 5k chars per expiration.
+
+        Greeks are not computed here; the passthrough ``delta`` on ATM
+        legs is whatever the backend emitted (``null`` for Yahoo). The
+        Yahoo ``dataQualityWarning`` is preserved in the summary.
+
+        Only ``strategy="SINGLE"`` chains are summarized — multi-leg and
+        ``ANALYTICAL`` strategies would need a different shape and are
+        not covered here.
+        """
+        logger.info(
+            "analyze_option_chain symbol=%s wings=%d top_n=%d",
+            symbol, wings, top_n,
+        )
+        try:
+            chain = _get_client().get_option_chain(
+                symbol,
+                contract_type=contract_type,
+                strike_count=strike_count,
+                include_underlying_quote=True,
+                strategy="SINGLE",
+                from_date=from_date,
+                to_date=to_date,
+                exp_month=exp_month,
+                option_type=option_type,
+                range_=range_,
+            )
+            summary = summarize_chain(chain, wings=wings, top_n=top_n)
+        except Exception:
+            logger.exception("analyze_option_chain failed symbol=%s", symbol)
+            raise
+        return summary
 
     @mcp.tool()
     def get_option_expirations(symbol: str) -> dict[str, Any]:

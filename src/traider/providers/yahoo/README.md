@@ -119,6 +119,22 @@ Supported filters: `contract_type` (CALL/PUT/ALL), `strike_count`
 
 For a strategy-aware chain with Greeks, switch to the Schwab backend.
 
+### `analyze_option_chain(symbol, wings=5, top_n=5, ...)`
+
+Bounded-size analyst view of a chain. Fetches via `get_option_chain`,
+then per expiration returns: ATM strike, ATM call + put legs
+(mark/bid/ask/IV/OI/volume), straddle cost, implied one-day move
+(percent), implied range, IV skew across ±`wings` strikes around
+ATM, and top `top_n` strikes by open interest and volume on each
+side.
+
+Raw `get_option_chain` output for a single expiration at
+`strike_count=20` easily exceeds 70k chars. `analyze_option_chain`
+compresses that to ~3–5k chars per expiration — use this when the
+caller is an LLM. Use the raw `get_option_chain` when a script needs
+per-contract fields. The Yahoo `dataQualityWarning` is preserved on
+the summary.
+
 ### `get_option_expirations(symbol)`
 
 Schwab-shaped expiration list from `Ticker.options`. Only the
