@@ -112,16 +112,16 @@ their third-party deps.
 
 ### Known profiles
 
-| Profile        | Tool group                                                         | Details                                                                                   |
-|----------------|--------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| `schwab`       | Schwab Trader API: quotes, history, TA, movers, accounts, analytics | [README](src/traider/connectors/schwab/README.md) · [AGENTS](src/traider/connectors/schwab/AGENTS.md) |
-| `yahoo`        | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](src/traider/connectors/yahoo/README.md) · [AGENTS](src/traider/connectors/yahoo/AGENTS.md) |
-| `fred`         | FRED (St. Louis Fed): economic-release calendar, series metadata, observations | [README](src/traider/connectors/fred/README.md) · [AGENTS](src/traider/connectors/fred/AGENTS.md) |
-| `fed-calendar` | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source) | [README](src/traider/connectors/fed_calendar/README.md) · [AGENTS](src/traider/connectors/fed_calendar/AGENTS.md) |
-| `sec-edgar`    | SEC EDGAR: 10-K/10-Q/8-K, Form 4 insiders, 13F holdings, XBRL facts / frames | [README](src/traider/connectors/sec_edgar/README.md) · [AGENTS](src/traider/connectors/sec_edgar/AGENTS.md) |
-| `factor`       | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, industry portfolios | [README](src/traider/connectors/factor/README.md) · [AGENTS](src/traider/connectors/factor/AGENTS.md) |
-| `treasury`     | US Treasury Fiscal Data: auction results, Daily Treasury Statement (TGA), debt-to-the-penny | [README](src/traider/connectors/treasury/README.md) · [AGENTS](src/traider/connectors/treasury/AGENTS.md) |
-| `news`         | Massive news API: ticker-scoped headlines + per-article sentiment insights | [README](src/traider/connectors/news/README.md) · [AGENTS](src/traider/connectors/news/AGENTS.md) |
+| Profile        | Tool group                                                         | Details                                                                                                      |
+|----------------|--------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| `schwab`       | Schwab Trader API: quotes, history, TA, movers, accounts, analytics | [README](src/traider/connectors/schwab/README.md) · [dev notes](DEVELOPING.md#schwab)                        |
+| `yahoo`        | Yahoo Finance (unofficial, via `yfinance`) — same tool surface as Schwab, no account required, no brokerage data | [README](src/traider/connectors/yahoo/README.md) · [dev notes](DEVELOPING.md#yahoo)                          |
+| `fred`         | FRED (St. Louis Fed): economic-release calendar, series metadata, observations | [README](src/traider/connectors/fred/README.md) · [dev notes](DEVELOPING.md#fred)                            |
+| `fed-calendar` | FOMC meeting dates / flags scraped directly from federalreserve.gov (primary source) | [README](src/traider/connectors/fed_calendar/README.md) · [dev notes](DEVELOPING.md#fed-calendar)            |
+| `sec-edgar`    | SEC EDGAR: 10-K/10-Q/8-K, Form 4 insiders, 13F holdings, XBRL facts / frames | [README](src/traider/connectors/sec_edgar/README.md) · [dev notes](DEVELOPING.md#sec-edgar)                  |
+| `factor`       | Ken French Data Library: Fama-French 3/5-factor, momentum, short/long-term reversal, industry portfolios | [README](src/traider/connectors/factor/README.md) · [dev notes](DEVELOPING.md#factor)                        |
+| `treasury`     | US Treasury Fiscal Data: auction results, Daily Treasury Statement (TGA), debt-to-the-penny | [README](src/traider/connectors/treasury/README.md) · [dev notes](DEVELOPING.md#treasury)                    |
+| `news`         | Massive news API: ticker-scoped headlines + per-article sentiment insights | [README](src/traider/connectors/news/README.md) · [dev notes](DEVELOPING.md#news)                            |
 
 **`schwab` and `yahoo` are mutually exclusive.** They expose the same
 tool names; the server refuses to start with both enabled. Everything

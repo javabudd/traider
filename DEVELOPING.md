@@ -1,0 +1,833 @@
+# DEVELOPING.md — traider
+
+Developer overlay for the `traider` hub. For runtime / analyst
+guidance — the docs that get loaded into an AI CLI's context — see
+[AGENTS.md](AGENTS.md). This file is for humans (and coding agents)
+touching the code.
+
+---
+
+## Table of contents
+
+- [Environment setup](#environment-setup)
+- [Package layout](#package-layout)
+- [How the profile system works](#how-the-profile-system-works)
+- [Running locally](#running-locally)
+- [Logging](#logging)
+- [Adding a new connector](#adding-a-new-connector)
+- Per-connector dev notes
+  - [schwab](#schwab)
+  - [yahoo](#yahoo)
+  - [fred](#fred)
+  - [fed-calendar](#fed-calendar)
+  - [sec-edgar](#sec-edgar)
+  - [factor](#factor)
+  - [treasury](#treasury)
+  - [news](#news)
+
+---
+
+## Environment setup
+
+**All Python commands in this repo run inside a conda env named
+`traider`.** TA-Lib has a C dependency; conda-forge is the supported
+install path and the Docker image uses the same recipe.
+
+```bash
+conda create -n traider -c conda-forge -y python=3.13 ta-lib
+conda activate traider
+pip install -e .
+```
+
+`pyproject.toml` declares every connector's deps at the top level —
+`yfinance`, `lxml`, `beautifulsoup4`, `numpy`, `TA-Lib`, `mcp`, `httpx`,
+`python-dotenv`. They're installed unconditionally; which of them
+actually get *imported* is decided at runtime by the profile loader.
+
+## Package layout
+
+```
+src/traider/
+  __init__.py              # version, module docstring
+  __main__.py              # entry: traider [auth schwab] | server
+  server.py                # FastMCP setup, PROFILES map, lazy loader
+  settings.py              # TraiderSettings (TRAIDER_TOOLS, log_dir)
+  logging_utils.py         # attach_profile_logger(logger_name, path)
+  connectors/
+    __init__.py            # (empty — connectors are imported lazily)
+    schwab/
+      __init__.py
+      tools.py             # def register(mcp, settings) — the MCP surface
+      schwab_client.py     # OAuth-authenticated httpx client
+      auth.py              # interactive authorization-code flow
+      ta.py                # TA-Lib indicator runner
+      analytics.py         # pure-numpy return/risk/correlation
+    yahoo/
+      __init__.py
+      tools.py
+      yahoo_client.py      # yfinance wrapper, Schwab-shaped payloads
+      ta.py                # TA-Lib indicator runner (twin of schwab/ta.py)
+      analytics.py         # (twin of schwab/analytics.py)
+    fred/
+      __init__.py
+      tools.py
+      fred_client.py       # httpx wrapper
+    fed_calendar/
+      __init__.py
+      tools.py
+      fomc_scraper.py      # httpx + BeautifulSoup
+    sec_edgar/
+      __init__.py
+      tools.py
+      edgar_client.py      # httpx + token bucket + UA enforcement
+      ticker_map.py        # company_tickers.json cache (24h TTL)
+      form4_parser.py      # lxml
+      form13f_parser.py    # lxml
+    factor/
+      __init__.py
+      tools.py
+      french_client.py     # fetch + disk cache + CSV block parser
+    treasury/
+      __init__.py
+      tools.py
+      treasury_client.py   # httpx wrapper around Fiscal Data
+    news/
+      __init__.py
+      tools.py
+      massive_client.py    # httpx wrapper around /v2/reference/news
+```
+
+Each connector is **self-contained under its directory** — imports
+inside a connector are relative (`from .client import X`, `from ..
+logging_utils import …`). Connectors don't import from each other.
+`ta.py` / `analytics.py` duplicate between `schwab/` and `yahoo/`
+intentionally; merging them into a shared module would couple the two
+market-data backends in a way the profile system is designed to avoid.
+
+## How the profile system works
+
+One server, many tool groups. `TRAIDER_TOOLS` (comma-separated in
+`.env` or the process env) lists the profiles to load:
+
+```
+TRAIDER_TOOLS=schwab,fred,sec-edgar,factor,treasury,news
+```
+
+Startup flow, in `src/traider/server.py`:
+
+1. `load_settings()` reads `TRAIDER_TOOLS` and `TRAIDER_LOG_DIR` into
+   a frozen `TraiderSettings`.
+2. `_validate_profiles(...)` rejects unknown names and enforces the
+   `schwab` / `yahoo` mutex.
+3. `_build_mcp()` creates one `FastMCP("traider", …)` instance.
+4. `load_profiles(mcp, settings)` walks the profile list and calls
+   `importlib.import_module(PROFILES[name])` — this is where lazy
+   loading happens. `yfinance`, `TA-Lib`, `lxml`, etc. only get
+   imported for profiles that are enabled.
+5. For each loaded module, `module.register(mcp, settings)` is called
+   to hang `@mcp.tool()` functions on the shared FastMCP.
+6. `mcp.run(transport=…)` starts the transport loop.
+
+`schwab` and `yahoo` are listed in `MARKET_DATA_PROFILES`; enabling
+both is a `SystemExit` at startup rather than a race on the shared
+tool names.
+
+### The register contract
+
+Every connector's `tools.py` exposes:
+
+```python
+def register(mcp: FastMCP, settings: TraiderSettings) -> None:
+    attach_profile_logger("traider.<name>", settings.log_file("<name>"))
+
+    @mcp.tool()
+    def some_tool(...): ...
+    @mcp.tool()
+    def other_tool(...): ...
+```
+
+Module-level state (client singletons, caches) lives at module scope;
+`register()` is called once at startup. Tool functions close over the
+module's `_get_client()` / config and capture the `mcp` instance
+through the decorator.
+
+## Running locally
+
+```bash
+conda activate traider
+pip install -e .
+
+export TRAIDER_TOOLS=schwab,fred,sec-edgar
+export SCHWAB_APP_KEY=...          # if TRAIDER_TOOLS includes schwab
+export SCHWAB_APP_SECRET=...
+export SCHWAB_CALLBACK_URL=https://127.0.0.1
+export FRED_API_KEY=...            # if TRAIDER_TOOLS includes fred
+export SEC_EDGAR_USER_AGENT="your-name you@example.com"   # if sec-edgar
+
+# Schwab-only: one-time interactive OAuth. Writes to
+# ~/.schwab-connector/schwab-token.json (or $SCHWAB_TOKEN_FILE).
+traider auth schwab
+
+# Then the server:
+traider                                          # streamable-http on 8765
+traider --transport stdio                        # for direct CLI wiring
+traider --transport streamable-http --port 9000  # custom port
+```
+
+`python -m traider` is equivalent to `traider`.
+
+### Docker
+
+`Dockerfile` + `docker-compose.yml` at the repo root build a single
+image that carries every dep (conda ta-lib + all pip deps). The
+service entry reads `TRAIDER_TOOLS` from `.env` and exposes 8765.
+
+```bash
+docker compose build
+docker compose run --rm traider traider auth schwab   # schwab only
+docker compose up -d
+```
+
+Volume mounts:
+
+- `${HOME}/.schwab-connector:/tokens` — Schwab OAuth token file.
+- `./logs:/app/logs` — per-connector log files (host-visible).
+- `${HOME}/.cache/traider-factor:/cache` — Ken French ZIP cache.
+
+## Logging
+
+Two layers:
+
+- **Root aggregate log**: `<TRAIDER_LOG_DIR>/traider.log` (default
+  `./logs/traider.log`). Captures the `traider`, `mcp`, `uvicorn*`,
+  and `httpx` loggers.
+- **Per-connector logs**: `<TRAIDER_LOG_DIR>/<profile>.log` (e.g.
+  `logs/schwab.log`, `logs/fred.log`). Each connector's `register()`
+  calls `attach_profile_logger("traider.<name>", settings.log_file("<name>"))`.
+
+Rotation: 5 MB × 3 backups on every handler. Tool handlers wrap their
+bodies in `logger.exception(...)`, so the full traceback for a failed
+tool call lands in the relevant per-connector log. **When a tool
+call fails, read the log file before asking the user for the
+traceback** — MCP transports often hide stdout/stderr from the agent
+calling tools.
+
+## Adding a new connector
+
+Mirror an existing small one (e.g. `news/` or `treasury/`):
+
+```
+src/traider/connectors/<name>/
+├── __init__.py          # one-line module docstring
+├── tools.py             # def register(mcp, settings)
+└── <client>.py          # thin httpx wrapper (or scraper, or parser)
+```
+
+Then:
+
+1. **Add the profile** to `PROFILES` in `src/traider/server.py`.
+2. **Add any new deps** to the top-level `pyproject.toml`
+   (`dependencies = [...]`) — but keep the heavy imports inside
+   `tools.py` so unused profiles don't pay the load cost.
+3. **Add env-var docs** to `.env.dist`.
+4. **Link from root docs**: row in the profile table in `README.md`
+   and `AGENTS.md`, plus a section in this file's
+   [per-connector dev notes](#per-connector-dev-notes).
+
+Conventions shared across connectors:
+
+- Clients are thin (one method per upstream endpoint). JSON comes
+  back essentially unchanged so the model sees the raw shape.
+- Tool docstrings are where the guidance for the model lives — pick
+  of parameters, period formats, gotchas. Keep them detailed; the
+  model reads them through MCP.
+- Raise on 429 / upstream errors. No silent retry-loop fallbacks.
+- Every response that hits an upstream should include a `source` URL
+  and `fetched_at` timestamp if the upstream doesn't already provide
+  one, so the analyst can cite it.
+
+---
+
+## Per-connector dev notes
+
+Each subsection captures the dev-oriented content from the connector's
+original per-server AGENTS.md: internals, secrets, gotchas, and "what
+not to do." Runtime analyst guidance lives in the root
+[AGENTS.md](AGENTS.md).
+
+### schwab
+
+**What it is.** Read-only bridge to the Schwab Trader API. Quotes,
+OHLCV history, TA-Lib indicators, option chains (with Greeks), movers,
+market hours, accounts, and pure-numpy analytics. Pure Python over
+HTTP — no COM, no desktop app.
+
+**Secrets.** `SCHWAB_APP_KEY`, `SCHWAB_APP_SECRET`,
+`SCHWAB_CALLBACK_URL` (must match the app registration in Schwab's
+developer portal). Tokens persist to the file at `SCHWAB_TOKEN_FILE`
+(default `~/.schwab-connector/schwab-token.json`, mode 0600).
+`SchwabClient` auto-refreshes the access token; if the refresh token
+itself is dead, it raises `SchwabAuthError` and the user must re-run
+`traider auth schwab`.
+
+**Why not the TOS RTD path anymore.** The repo originally tried to
+reach TOS Desktop's RTD COM server (`Tos.RTD`, the interface behind
+Excel's `=RTD("tos.rtd",…)` formulas). That path is abandoned. The
+blocking issue: `IRTDUpdateEvent` is a dual COM interface, and
+pywin32 can only synthesize a real vtable for a dual interface from a
+registered type library (Office's `MSO.DLL` ships it; plain Windows
+does not). Without that TLB, every call path into our Python callback
+eventually hits undefined vtable memory and `Py_FatalError`s the
+process. Investigating that took a lot of time — don't re-open it
+without (a) Office installed and (b) a plan to use
+`win32com.universal.RegisterInterfaces`.
+
+**Things that will bite you.**
+
+- **Token expiry.** Schwab access tokens expire in ~30 minutes and
+  refresh tokens in ~7 days. After a lapse, the user has to re-run
+  `traider auth schwab`. Don't silently swallow "invalid refresh
+  token" — surface it.
+- **Options symbology.** Schwab expects the 21-character OSI format
+  (e.g. `SPY   250321C00500000`), not dotted TOS notation. Equities
+  and futures (`/ES`) work as-is.
+- **Option chains are nested maps, not lists.** `get_option_chain`
+  returns Schwab's native `callExpDateMap` / `putExpDateMap` keyed by
+  `"YYYY-MM-DD:dte"` → strike → **list** of contracts (Schwab allows
+  multiple strategy legs per strike). When flattening for analysis,
+  iterate the list; don't assume length 1 even for `strategy=SINGLE`.
+- **`strategy` overrides are load-bearing.** `ANALYTICAL` re-prices
+  the whole chain against caller-supplied `volatility` /
+  `underlying_price` / `interest_rate` / `days_to_expiration`. If any
+  of those are off, every Greek and theoretical value in the response
+  is off too. Don't set them just to round-trip — leave them `None`
+  unless the user is explicitly asking for a re-priced chain.
+- **Market hours.** Outside RTH, `lastPrice` may be stale; pre/post
+  session fields live under different keys in the quote JSON.
+- **Sandbox vs production.** If you set `SCHWAB_BASE_URL`, make sure
+  it points where you intend.
+- **Price history parameter combos.** Schwab's `/pricehistory`
+  endpoint rejects most `periodType` / `frequencyType` / `period` /
+  `frequency` combinations with a terse 400. The valid matrix is in
+  the tool docstring. If tempted to add client-side validation, don't
+  — the response is specific enough, and the matrix is subject to
+  change.
+- **Candle timestamps are epoch ms UTC.** Convert to
+  `America/New_York` when formatting for display or computing session
+  boundaries.
+- **TA-Lib is a C dep.** Use conda-forge (`ta-lib`) or the distro
+  package; the pip wrapper needs the native library present first. If
+  the wrapper imports but returns garbage, check the C lib version
+  matches what the wheel was built against. Don't silently fall back
+  to a pure-Python reimplementation — indicator outputs won't match
+  what users expect from TA-Lib.
+- **TA-Lib warmup NaNs.** Indicators need history before producing a
+  value (SMA(20) returns NaN for the first 19 points). `ta.py`
+  converts those to JSON `null`; don't strip them — the positions
+  have to stay aligned with `datetime`.
+- **Series size.** `run_technical_analysis` returns one value per
+  candle per indicator by default. A year of 1-minute bars × several
+  indicators can blow up the response. Push callers toward `tail` or
+  a coarser frequency when they don't need the full history.
+
+**What not to do.**
+
+- Don't store OAuth tokens in the repo, in env files committed to git,
+  or in log output.
+- Don't introduce an ORM, a database, or a queue. Thin HTTP client
+  plus MCP surface — keep it thin.
+- Don't add write operations. Schwab's API supports them; this
+  connector does not, by policy.
+- Don't paper over rate limits with exponential-retry loops. One retry
+  for a transient 5xx is fine; 429s should propagate.
+- Don't re-attempt the RTD COM path without Office's MSO TLB and a
+  concrete plan for `win32com.universal`.
+
+### yahoo
+
+**What it is.** Read-only bridge to Yahoo Finance via
+[`yfinance`](https://pypi.org/project/yfinance/). Exists for users
+without a Schwab developer account. Tool surface intentionally
+matches `schwab` so prompts are portable. When Yahoo can't cover a
+capability, the tool raises `YahooCapabilityError` rather than
+inventing a response.
+
+**Secrets.** None. yfinance is unauthenticated.
+
+**Capability gaps vs. schwab.**
+
+- **`get_accounts`** — raises. Yahoo is a data source, not a brokerage.
+- **`get_market_hours`** — raises. Yahoo has no authoritative
+  session-hours endpoint.
+- **`get_option_chain`** — works but: no Greeks
+  (`delta`/`gamma`/`theta`/`vega`/`rho` are `null`), delayed ~15 min,
+  illiquid strikes can show stale or zero bid/ask, bid/ask sizes
+  emitted as `0`. Response carries a top-level `dataQualityWarning`
+  key. Only `strategy="SINGLE"`; strategies and the `ANALYTICAL`-only
+  numeric overrides raise.
+- **`get_option_expirations`** — returns date list only;
+  `expirationType` / `settlementType` / `optionRoots` / `standard`
+  are `null`.
+- **`get_movers`** — US-market-wide Yahoo screeners, not per-index.
+  `sort` selects the screener; `index` is only used when it matches a
+  raw Yahoo screener key; `frequency` is ignored.
+- **`search_instruments`** — Yahoo's symbol search is fuzzy; all
+  `symbol-*` / `desc-*` / `search` projections return the same list.
+- **Intraday history depth** — 1m history caps at ~7 days, all
+  sub-hourly bars at ~60 days.
+- **Option symbology** — Yahoo's own format (e.g.
+  `SPY250321C00500000`, no padding). The client does not translate
+  to/from Schwab's OSI.
+- **10-minute bars** — Yahoo doesn't support them; `frequency=10`
+  raises rather than substituting 15m.
+
+**Things that will bite you.**
+
+- **`yfinance` version drift.** Yahoo's endpoints change; breakage
+  shows up as `yfinance` exceptions or unexpected empty responses.
+  First debugging step is always `pip install -U yfinance` and see if
+  upstream shipped a fix.
+- **`.info` is slow and rate-limit-prone.** Assembles via several
+  HTTP requests. Only called for quotes (bid/ask/sizes) and for
+  `projection="fundamental"`. Don't add more callers without reason.
+- **Timestamps.** yfinance returns pandas Timestamps with tz. The
+  client converts to UTC epoch ms to match the Schwab candle schema.
+  If you change the conversion, make sure `analytics.py` still sees
+  strictly increasing ms values — it infers annualization from bar
+  spacing.
+- **Splits / dividends.** `history(..., auto_adjust=False)` gives raw
+  OHLC; switching to adjusted prices would change the outputs of
+  every `analyze_*` tool. Don't flip the default without updating
+  docstrings and tests.
+- **Empty candles.** Yahoo drops rows for holidays and halted
+  sessions. The client skips NaN rows rather than emitting
+  zero-filled bars; an empty `candles` list means the request window
+  had no data (common for 1m bars older than ~7 days).
+- **Screeners.** `yf.screen(...)` occasionally returns a dict with
+  an empty `quotes` list when Yahoo throttles; don't mistake it for
+  "no movers today." Log the full response if you see this.
+- **Option IV units.** yfinance reports IV as decimal (`0.42` = 42%);
+  Schwab reports it as percent (`42.0`). `get_option_chain`
+  normalizes to Schwab's convention on the way out — don't
+  double-multiply if you touch that path.
+- **`Ticker.option_chain(date)` is one HTTP per expiration.** A full
+  SPY request is dozens of round-trips. Encourage callers to narrow
+  with `from_date` / `to_date` / `exp_month`.
+
+**What not to do.**
+
+- Don't add an `auth` subcommand — yfinance is unauthenticated.
+- Don't translate option-symbol formats inside this client.
+- Don't paper over 429/Cloudflare responses with retry loops.
+- Don't copy-adjust prices silently. Expose a flag and document it.
+
+### fred
+
+**What it is.** Read-only bridge to the
+[FRED API](https://fred.stlouisfed.org/docs/api/fred/). Economic-
+release calendar (CPI, PPI, NFP, GDP, PCE, retail sales, JOLTS),
+release/series metadata, and observation time-series for any of FRED's
+~800 000 series.
+
+**Secrets.** `FRED_API_KEY` (free, from
+<https://fredaccount.stlouisfed.org/apikeys>).
+
+**Why the heavy lifting lives server-side.** FRED's `/releases/dates`
+is a firehose of low-signal releases:
+
+1. **"FOMC Press Release" (release 101) spam** when
+   `include_release_dates_with_no_data=true`: fires on every day of
+   a meeting window, so a two-week window returns ~14 copies. The
+   curated `get_high_impact_calendar` excludes release 101; its
+   docstring points callers at the `fed-calendar` profile's
+   `get_fomc_meetings` for FOMC dates.
+2. **No knob to filter by release** on `/releases/dates` itself.
+   `get_release_schedule(release_ids=[...])` and
+   `get_high_impact_calendar` fan out per-release and merge the rows.
+
+**FRED release-id cheatsheet for common trading-relevant prints**
+(these change rarely; verify with `list_releases` if in doubt):
+
+| Release                          | `release_id` | Common series IDs                                    |
+|----------------------------------|-------------:|------------------------------------------------------|
+| Consumer Price Index             |           10 | `CPIAUCSL` (headline), `CPILFESL` (core)             |
+| Producer Price Index             |           46 | `PPIACO`, `PPIFIS`                                    |
+| Employment Situation (NFP)       |           50 | `PAYEMS`, `UNRATE`, `AHETPI`                         |
+| Personal Income and Outlays (PCE)|           21 | `PCEPI`, `PCEPILFE` (core)                           |
+| Gross Domestic Product           |           53 | `GDP`, `GDPC1` (real)                                 |
+| Retail Sales                     |           32 | `RSAFS`, `RSXFS` (ex auto)                           |
+| JOLTS                            |          192 | `JTSJOL`, `JTSQUR`                                    |
+| FOMC Meeting / Statement         |          101 | — (no series; use `fed-calendar`)                    |
+
+**Things that will bite you.**
+
+- **Realtime vs. observation dates.** FRED distinguishes *realtime*
+  (the vintage — when was this value visible to market participants?)
+  from *observation* (which period does the value describe?). The
+  release-calendar endpoints are realtime-scoped; series observations
+  are observation-scoped. Mixing them up puts the wrong dates in
+  front of the user.
+- **Empty release dates.** When `include_empty=True`, future scheduled
+  dates appear with no data yet. That's the signal for "upcoming
+  release" — don't filter them out.
+- **Series-level units.** Passing `units="pch"` computes a percent
+  change server-side. Computing it client-side *too* will
+  double-transform.
+- **Rate limit.** 120 requests per 60s per key. A tight loop over
+  `get_release_series(...)` for many releases will trip it; batch
+  with higher `limit` instead.
+
+**What not to do.**
+
+- Don't add an OAuth flow — FRED uses a static API key.
+- Don't cache responses silently. If caching is useful, expose the
+  TTL and signal stale-hit in the response.
+- Don't reshape the FRED JSON into a "nicer" schema. The model can
+  read the raw shape; hiding fields makes debugging harder.
+
+### fed-calendar
+
+**What it is.** Read-only scrape of
+<https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm>.
+Dates and flags only (meeting date range, SEP flag, press-conference
+URL, parenthetical notes). No JSON/ICS/RSS feed exists for this
+calendar; HTML scrape is the primary source.
+
+**Secrets.** None. federalreserve.gov is public.
+
+**HTML structure we depend on.** Documented so the next person
+touching `fomc_scraper.py` knows exactly what will break it. Source:
+federalreserve.gov as of 2026.
+
+- Each year is a `div.panel.panel-default` under the article body. The
+  heading text contains the year (e.g. `"2026 FOMC Meetings"`).
+- Each meeting is a `div.row.fomc-meeting` inside that panel.
+- Month label: `div.fomc-meeting__month > strong` — full month names,
+  or `"April/May"` style for meetings that straddle two months.
+- Date range: `div.fomc-meeting__date` — `"27-28"`, `"8-9*"` (SEP),
+  `"22 (notation vote)"`, or parenthetical-only for unscheduled items.
+- SEP footnote: trailing literal `*` on the date cell.
+- Press conference: `<a>` with `href` matching regex
+  `fomcpres{1,2}conf` (Fed has historically used both spellings).
+- Minutes / statement URLs: label or href keyword match; not
+  semantically tagged.
+
+The panel-footer holds the SEP legend. We don't parse it — the `*`
+flag is self-documenting in the tool docstring.
+
+**Things that will bite you.**
+
+- **Fed layout changes.** If every tool call starts failing with "no
+  FOMC year panels found", inspect the HTML in a browser and update
+  the selectors in `fomc_scraper.py` to match. Don't paper over with
+  fuzzy fallbacks.
+- **Two-month meetings.** Occasionally a meeting spans April/May or
+  October/November. The month cell reads e.g. `"April/May"` and the
+  date cell gives two days in different months. The scraper anchors
+  `start_date` to the first month, `end_date` to the second. If the
+  Fed ever publishes a three-day straddle (unprecedented), logic
+  needs updating.
+- **Notation votes / unscheduled items.** Purely parenthetical rows
+  (e.g. `"(notation vote)"`) with no days are skipped — no date to
+  anchor to.
+- **Timezone.** `utc_today()` uses UTC. A FOMC decision is an ET
+  event, so "today" / "tomorrow" can disagree by a few hours on the
+  edges. Document the UTC choice in the tool response rather than
+  faking ET.
+- **Rate limiting.** federalreserve.gov isn't aggressive, but each
+  tool call sends one request. If this grows, add an explicit TTL
+  cache — don't let the agent accidentally loop.
+
+**What not to do.**
+
+- Don't add aggregator fallbacks. Fed page is the only source.
+- Don't extend to every central bank in one commit. If ECB/BoE/BoJ
+  coverage is worth adding, land each as its own module with its own
+  primary-source scraper.
+- Don't silently cache. If caching helps, expose a visible TTL in
+  the response.
+- Don't "enhance" meeting records with computed fields that aren't on
+  the Fed page (rate-decision probability from fed funds futures,
+  etc.). That belongs in analysis code, not the primary-source
+  scraper.
+
+### sec-edgar
+
+**What it is.** Read-only bridge to SEC EDGAR (`data.sec.gov`,
+`www.sec.gov/Archives`, `efts.sec.gov`). Filings (10-K/10-Q/8-K/S-1/
+proxy + FPI equivalents 20-F/6-K), Form 4 insider transactions, 13F
+institutional holdings, and XBRL company facts per-company and
+cross-sectionally.
+
+**Secrets.** None — EDGAR is public and unauthenticated. The only
+configuration is `SEC_EDGAR_USER_AGENT`, which lives in `.env`.
+Example value (use a real name/email, not a placeholder):
+`SEC_EDGAR_USER_AGENT=traider-hub you@example.com`.
+
+**SEC Fair Access requirements.**
+
+- **Descriptive `User-Agent` required.** Every request must carry a
+  UA that identifies the client and includes a contact email, or SEC
+  will IP-block. The client enforces this at construction via
+  `SEC_EDGAR_USER_AGENT` — **do not** hardcode a default email or
+  silently fall back to a generic UA. Fail loud.
+- **10 requests/second per IP.** Enforced client-side with a token
+  bucket in `edgar_client.py`. On 429 or 403, the client raises
+  `SecEdgarRateLimitError` and stops — no retry loops. If a tool
+  needs higher throughput than the bucket allows (13F fan-out, large
+  Form 4 batches), push pagination to the caller.
+- **UA email out of logs.** The UA is a config value, not a secret,
+  but it's the user's real contact email in outbound headers. Don't
+  include it in tool response bodies — it stays at the HTTP layer.
+
+**Scoping choices made in v1.** These answers should be preserved
+until there's a concrete user need to change:
+
+1. **Form 4 is issuer-scoped.** You can list a company's insider
+   trades, but there's no "all of CEO Jane Doe's trades across her
+   boards" tool. Would need fan-out over her reporting-owner CIK;
+   add it only if asked.
+2. **13F reverse lookup is not shipped.** `get_institutional_portfolio`
+   reads one filer's holdings; no "who holds AAPL?" tool. Real-time
+   reverse lookup against SEC alone is O(managers × filings) per
+   query — impractical without an in-process index. Defer until
+   asked, then decide between building the index and wiring a vendor
+   dataset.
+3. **Foreign private issuers are included.** Default form-type
+   filters don't exclude `20-F` / `6-K`. Users who only want US
+   filers can pass `form_types=["10-K", "10-Q", "8-K"]`.
+4. **Caching: only the ticker map.** `company_tickers.json` has a
+   24-hour TTL (exposed via `ticker_map_fetched_at` in every response
+   that consults it). Filings, company facts, concepts, and frames
+   are **not cached** — they change on every filing and stale reads
+   would mislead. Visible `fetched_at` on every response.
+
+**Things that will bite you.**
+
+- **XBRL concept names are not uniform across filers.** Some
+  companies tag revenue as `Revenues`, others as `SalesRevenueNet`,
+  others as `RevenueFromContractWithCustomerExcludingAssessedTax`.
+  `get_company_concept` 404s on the wrong name. When a lookup
+  fails, try `get_company_facts` to see what the filer actually tags,
+  or use `get_frame` which aggregates across the concept.
+- **Frame periods: duration vs. instantaneous.** Balance-sheet
+  concepts (`Assets`, `Liabilities`) only exist as instantaneous
+  values — the frame period must end in `I` (e.g. `CY2024Q4I`). Flow
+  concepts (`Revenues`, `NetIncomeLoss`) are duration — no `I`
+  suffix. Mixing returns 404.
+- **13F value units changed in 2022.** SEC switched 13F `value` from
+  thousands of dollars to whole dollars for periods ending on or
+  after 2022-09-30. The parser infers the unit from `period_of_report`
+  and tags it on the envelope. If aggregating, check that field
+  before summing.
+- **Amendments are separate form codes.** `10-K/A`, `10-Q/A`,
+  `8-K/A`, `4/A`, `13F-HR/A` are distinct filings, not silently
+  merged. `form_types=["10-K"]` will *not* match `10-K/A`.
+- **Submissions feed only holds recent filings inline.** Older
+  history spills into `filings.files[*]` overflow JSONs referenced
+  by name. The tool layer reads only the inline recent block; for
+  deep history, the client has `submissions_overflow(...)` but it's
+  not fanned out at the MCP layer yet. Add only when asked.
+- **Rate limit is real.** 10 req/sec is enforced by SEC at the IP
+  level; the client's token bucket matches. Fan-outs over many
+  Form 4 filings *will* hit the wall — prefer fewer, larger tool
+  calls and tell the model to paginate.
+- **Full-text search endpoint is undocumented.** `efts.sec.gov` powers
+  EDGAR's public search page; its response shape is Elasticsearch's
+  and SEC can change it without notice. The tool passes raw hits
+  through — brittleness is worth the signal.
+
+**What not to do.**
+
+- Don't hardcode a default `User-Agent`. SEC bans "sample UA strings
+  copied from the docs." Require the env var.
+- Don't retry 429s or 403s. Raise, let the user see the throttle.
+- Don't cache filing contents. Filings are immutable once filed, but
+  the *set* of filings changes constantly.
+- Don't reshape `companyfacts` / `companyconcept` JSON into a "nicer"
+  schema.
+- Don't add aggregator fallbacks (Yahoo financials, Simply Wall St).
+  Primary-source-only.
+
+### factor
+
+**What it is.** Read-only bridge to the
+[Ken French Data Library](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html).
+Fama-French 3/5-factor, momentum, short/long-term reversal, and
+N-industry portfolios at monthly / weekly / daily frequencies. Plus an
+escape hatch for any other file on the library.
+
+**Secrets.** None. The library is unauthenticated.
+
+**Caching.** ZIPs are disk-cached under `$FACTOR_CACHE_DIR` (default
+`~/.cache/traider-factor/`, or `/cache` in the Docker image, mounted
+from the host). Cache key is the dataset filename; TTL is per-call
+(default 24 h, override with `ttl_seconds=…` on any tool).
+`refresh=True` bypasses the cache for one call without invalidating
+it for other callers.
+
+The Docker volume mount (`${HOME}/.cache/traider-factor:/cache`)
+persists the cache across container restarts. Dropping it causes
+every restart to re-fetch — harmless (files are small) but wasteful.
+
+**CSV parser internals.** `french_client.py` is the parser that
+matters. Ken French CSVs embed multiple tables in one file, separated
+by blank lines, with optional multi-line titles and a
+`,Col1,Col2,...` header row. The parser is block-based: split on
+blank lines, identify the data-header row inside each block, treat
+prose lines above it as the section title, rows below as data.
+
+**Units and sentinels.**
+
+- **Returns are in percent**, not decimals. A value of `2.96` means
+  +2.96%, not +296%.
+- **Missing values** in the source file are `-99.99` or `-999`. The
+  parser converts them to `None` so downstream math doesn't treat
+  them as -100% returns.
+- **RF** in the factor files is the 1-month T-bill rate for the
+  corresponding period (also in percent).
+
+**Things that will bite you.**
+
+- **Units trap.** Values are percents — don't multiply by 100 "to
+  convert" them; they already are. Mixing factor returns (pct) with
+  raw equity returns (decimal) gives nonsense regressions.
+- **Annual blocks** lexicographically sort fine vs. monthly but
+  `"2024" > "2023-12"` under string comparison, which is what
+  `filter_rows_by_date` uses. Pass bounds matching the frequency of
+  the section you're reading (`YYYY` for annual, `YYYY-MM` for
+  monthly, `YYYY-MM-DD` for daily). Mixing them quietly filters out
+  rows you meant to keep.
+- **Industry column names are Ken French's, not yours.** `Durbl`
+  isn't a ticker — it's the "Consumer Durables" bucket. See
+  `list_datasets`.
+- **Daily files are large.** The 48-industry daily file is ~9 MB
+  unzipped with ~26k rows. Filter server-side by date rather than
+  pulling the whole thing.
+- **Filenames aren't intuitive.** `F-F_Research_Data_5_Factors_2x3`
+  is the 5-factor file; `2x3` is the sort methodology, not the column
+  count. `list_datasets` maps the short-form `model` parameter to
+  the right filename.
+
+**What not to do.**
+
+- Don't add a pandas-datareader fallback. The URL pattern is stable;
+  if it breaks, raise.
+- Don't silently widen the cache TTL to mask a fetch failure. TTL is
+  per-call and explicit.
+- Don't reshape column names ("Mkt-RF" → "market_minus_rf"). Ken
+  French names are canonical in the literature.
+- Don't add a "compute alpha / factor exposure" tool here. This
+  profile fetches and parses; any regression belongs in a separate
+  tool or client-side over this + a market-data backend.
+
+### treasury
+
+**What it is.** Read-only bridge to the
+[Treasury Fiscal Data API](https://fiscaldata.treasury.gov). Three
+primary-source datasets:
+
+- **Securities auction results** — bid-to-cover, stop-out yield/rate,
+  primary-dealer takedown, direct/indirect bidder share.
+- **Daily Treasury Statement (DTS)** — operating cash balance (TGA),
+  deposits/withdrawals, public-debt transactions, etc.
+- **Debt to the Penny** — daily total public debt outstanding.
+
+**Yield curve is deliberately not here.** FRED mirrors Treasury's
+H.15 in full (`DGS1MO` … `DGS30`, `DFII*` for TIPS). This profile
+exists for the Treasury datasets FRED does not carry at useful
+granularity.
+
+**Secrets.** None. Fiscal Data is unauthenticated. We still send a
+descriptive UA so Treasury's logs can identify the traffic.
+
+**Fiscal Data query dialect.** All three tools funnel through one
+`TreasuryClient.query` method:
+
+- `filter` — `field:op:value,field:op:value,...` where op is `eq`,
+  `gte`, `gt`, `lte`, `lt`, `in`.
+- `fields` — comma-separated projection.
+- `sort` — field name, `-` prefix for desc.
+- `page[size]` / `page[number]` — page size max 10 000, 1-indexed.
+
+If a user asks for something outside the curated tool surface
+(a different dataset in the Fiscal Data catalog), expose it as a new
+tool rather than repurposing `query` as a raw passthrough. Value lives
+in the projection and defaults.
+
+**Things that will bite you.**
+
+- **The DTS changed format in 2022.** The legacy PDF format and the
+  new JSON-native tables differ. This profile only talks to the new
+  Fiscal Data tables (`/v1/accounting/dts/...`). Data before Oct 2022
+  returns new-format columns only — the endpoints will not
+  reconstruct the old table structure.
+- **Amounts are strings.** Fiscal Data returns monetary fields as
+  strings (e.g. `"847182563921.43"`) to preserve precision. Don't
+  assume numeric JSON; the client returns JSON verbatim.
+- **`record_date` vs. reporting window.** DTS `record_date` is the
+  date the statement covers (usually T-1 settlement). Auction
+  `record_date` is the date the record was published; use
+  `auction_date` for filtering when you care about auction timing.
+- **Paging matters for long windows.** Default page size 100. A full
+  year of daily TGA balances is ~260 rows (under one page); a full
+  year of auctions can exceed 1 000 rows. Bump `limit` or iterate
+  `page`.
+- **Yield curve is elsewhere.** 2Y / 10Y / 30Y time series →
+  `fred` profile's `get_series("DGS10")` — not `get_auction_results`.
+  Auction high yields are stop-out yields for a specific sale, not a
+  secondary-market curve.
+
+**What not to do.**
+
+- Don't add a yield-curve tool here. Route to FRED.
+- Don't add a "secondary-market rate" tool — also FRED (H.15).
+- Don't reshape Fiscal Data's column names.
+- Don't cache responses silently. If caching becomes necessary, expose
+  the TTL and signal stale-hit in the response.
+- Don't retry 429s. Let them propagate.
+
+### news
+
+**What it is.** Read-only bridge to Massive's
+`/v2/reference/news` endpoint. The rest of Massive's surface (quotes,
+aggregates, trades) is intentionally out of scope — the hub already
+has dedicated market-data backends.
+
+Articles carry publisher metadata, the tickers they reference, and a
+per-ticker `insights` array with Massive's sentiment label and
+reasoning. **That sentiment is Massive's model output, not a primary-
+source fact** — treat it as one signal among many, not ground truth.
+
+**Secrets.** `MASSIVE_API_KEY` (register at
+<https://massive.com>). Sent as an `apiKey` query param on every
+request. Do not log it.
+
+**Things that will bite you.**
+
+- **Ticker is case-sensitive.** Massive documents `ticker` as
+  case-sensitive. Pass `AAPL`, not `aapl`.
+- **`published_utc` is RFC3339.** For minute-level precision, use the
+  full timestamp (e.g. `2026-04-18T13:30:00Z`). ISO dates also work.
+- **Sentiment is Massive's, not yours.** `insights[].sentiment` is a
+  model label ("positive" / "negative" / "neutral") with a
+  `sentiment_reasoning` blurb. Quote with attribution; don't
+  aggregate or average across articles without flagging that as
+  interpretation.
+- **Pagination uses `next_url`.** Massive returns a pre-built cursor
+  URL in the response — follow it if needed. The tool does not
+  aggregate pages for you.
+- **Free tier rate limits.** Massive throttles free-tier keys. A burst
+  of `get_news` calls will 429; the tool surfaces it instead of
+  retrying silently. Back off or batch.
+
+**What not to do.**
+
+- Don't expand into Massive's other endpoints (aggregates, trades,
+  fundamentals) — re-introduces the "which profile owns quotes?"
+  routing ambiguity the hub avoids.
+- Don't cache responses silently. News freshness is the whole point;
+  a stale cache hit defeats the tool.
+- Don't retry 429s internally.
+- Don't blend Massive's feed with another news provider in one tool
+  call. A second news source gets its own profile.
