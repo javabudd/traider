@@ -99,8 +99,16 @@ def _pick_form4_xml(row: dict[str, Any]) -> str | None:
     """The Form 4 primary document is almost always ``<accession>.xml``
     or named like ``doc4.xml`` / ``form4.xml``. The submissions feed
     sometimes points at an ``.html`` rendering — fall back to the
-    conventional XML name."""
+    conventional XML name.
+
+    EDGAR's ``primaryDocument`` for Form 4 frequently carries an XSL-
+    viewer path prefix (e.g. ``xslF345X05/wk-form4_*.xml``) that serves
+    an HTML-rendered preview rather than the raw XML. The raw XML lives
+    at the same basename in the archive root, so strip the prefix.
+    """
     name = row.get("primary_doc_name") or ""
+    if "/" in name and name.lower().startswith("xsl"):
+        name = name.split("/", 1)[1]
     if name.lower().endswith(".xml"):
         return name
     acc_nodash = row["accession_nodash"]
