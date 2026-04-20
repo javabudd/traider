@@ -44,7 +44,7 @@ services:
       # auth flow uses when run outside docker, so the two modes
       # share the same token.
       - ${HOME}/.schwab-connector:/tokens
-      # Per-connector log files live under ./logs on the host.
+      # Per-provider log files live under ./logs on the host.
       - ./logs:/app/logs
       # Disk cache for Ken French ZIPs. Persisting across container
       # restarts is the whole point of the cache — without this volume

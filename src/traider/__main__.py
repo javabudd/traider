@@ -24,7 +24,7 @@ def _run_auth(args: list[str]) -> None:
             "usage: traider auth schwab\n"
             "(only 'schwab' has an interactive auth flow today)"
         )
-    from .connectors.schwab.auth import run_auth_flow
+    from .providers.schwab.auth import run_auth_flow
     run_auth_flow()
 
 

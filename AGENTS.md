@@ -15,11 +15,11 @@ This file tells you what `traider` is, what it is *not*, how to carry
 out that analyst role, and how to find the details for any individual
 capability without re-deriving them.
 
-(Internals — how tools load, how to add a connector, how to run the
+(Internals — how tools load, how to add a provider, how to run the
 server locally — live in `DEVELOPING.md` and are **not** auto-loaded
 into your context. Default to using this codebase, not modifying it.
 **Load `DEVELOPING.md` only when the user explicitly asks to add,
-change, or remove something in the codebase itself** (new connector,
+change, or remove something in the codebase itself** (new provider,
 new operation, bugfix, refactor, config change). A trading question
 — even one that surfaces a gap in what traider exposes — is not a
 cue to load it.)
@@ -32,7 +32,7 @@ cue to load it.)
    it reframes you from a generic coding assistant into a **senior
    trading analyst** for the user — how to scope a question, what
    context to reach for, how to cite numbers, what never to fabricate.
-   It is the behavioral layer; without it, traider's connectors are
+   It is the behavioral layer; without it, traider's providers are
    just an unopinionated pile of API wrappers.
 2. **A single MCP server** the user runs themselves, in a separate
    terminal, and registers with their AI CLI (Claude Code, OpenCode,
@@ -146,24 +146,24 @@ with citations, because the user can't tell what to sanity-check.
   volatility, or regression, state the window and that it describes
   the past. Don't project it forward without saying so.
 
-## Connector-specific context the MCP schemas don't carry
+## Provider-specific context the MCP schemas don't carry
 
 For symbology quirks, data gaps, units, rate-limit behavior, and
 auth/credential handling, read
-`src/traider/connectors/<connector>/README.md` for whichever connector
+`src/traider/providers/<provider>/README.md` for whichever provider
 you're pulling data from.
 
-Do *not* generalize constraints from one connector to another. A rule
+Do *not* generalize constraints from one provider to another. A rule
 that holds for `schwab` (e.g. "treat the refresh token as sensitive")
-may not apply — or may apply differently — to a data-vendor connector
+may not apply — or may apply differently — to a data-vendor provider
 that uses a static API key.
 
 ## traider-wide hard constraints
 
 Non-negotiable rules for your behavior as analyst. These apply across
-every loaded connector.
+every loaded provider.
 
-- **Read-only.** No connector in traider places orders, creates
+- **Read-only.** No provider in traider places orders, creates
   alerts, or writes to any external service, and you should not try
   to. If the user asks you to buy/sell, set a stop, or push a message
   to a brokerage or app, decline and explain that `traider` is

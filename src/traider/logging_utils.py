@@ -1,6 +1,6 @@
-"""Per-connector log-file wiring.
+"""Per-provider log-file wiring.
 
-Each connector calls ``attach_profile_logger`` from its ``register()``
+Each provider calls ``attach_profile_logger`` from its ``register()``
 to pin its module logger to ``<log_dir>/<profile>.log``. The hub's
 root logger keeps the aggregated ``traider.log`` in the same directory.
 """
@@ -14,7 +14,7 @@ _attached: set[tuple[str, str]] = set()
 
 
 def attach_profile_logger(logger_name: str, log_file: Path) -> logging.Logger:
-    """Attach a rotating file handler for one connector's logger.
+    """Attach a rotating file handler for one provider's logger.
 
     Idempotent: called more than once with the same (logger, path)
     is a no-op, so reloading a profile during tests doesn't duplicate

@@ -14,8 +14,8 @@ touching the code.
 - [How the profile system works](#how-the-profile-system-works)
 - [Running locally](#running-locally)
 - [Logging](#logging)
-- [Adding a new connector](#adding-a-new-connector)
-- Per-connector dev notes
+- [Adding a new provider](#adding-a-new-provider)
+- Per-provider dev notes
   - [schwab](#schwab)
   - [yahoo](#yahoo)
   - [fred](#fred)
@@ -39,7 +39,7 @@ conda activate traider
 pip install -e .
 ```
 
-`pyproject.toml` declares every connector's deps at the top level —
+`pyproject.toml` declares every provider's deps at the top level —
 `yfinance`, `lxml`, `beautifulsoup4`, `numpy`, `TA-Lib`, `mcp`, `httpx`,
 `python-dotenv`. They're installed unconditionally; which of them
 actually get *imported* is decided at runtime by the profile loader.
@@ -53,8 +53,8 @@ src/traider/
   server.py                # FastMCP setup, PROFILES map, lazy loader
   settings.py              # TraiderSettings (TRAIDER_TOOLS, log_dir)
   logging_utils.py         # attach_profile_logger(logger_name, path)
-  connectors/
-    __init__.py            # (empty — connectors are imported lazily)
+  providers/
+    __init__.py            # (empty — providers are imported lazily)
     schwab/
       __init__.py
       tools.py             # def register(mcp, settings) — the MCP surface
@@ -97,9 +97,9 @@ src/traider/
       massive_client.py    # httpx wrapper around /v2/reference/news
 ```
 
-Each connector is **self-contained under its directory** — imports
-inside a connector are relative (`from .client import X`, `from ..
-logging_utils import …`). Connectors don't import from each other.
+Each provider is **self-contained under its directory** — imports
+inside a provider are relative (`from .client import X`, `from ..
+logging_utils import …`). Providers don't import from each other.
 `ta.py` / `analytics.py` duplicate between `schwab/` and `yahoo/`
 intentionally; merging them into a shared module would couple the two
 market-data backends in a way the profile system is designed to avoid.
@@ -134,7 +134,7 @@ tool names.
 
 ### The register contract
 
-Every connector's `tools.py` exposes:
+Every provider's `tools.py` exposes:
 
 ```python
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
@@ -191,7 +191,7 @@ docker compose up -d
 Volume mounts:
 
 - `${HOME}/.schwab-connector:/tokens` — Schwab OAuth token file.
-- `./logs:/app/logs` — per-connector log files (host-visible).
+- `./logs:/app/logs` — per-provider log files (host-visible).
 - `${HOME}/.cache/traider-factor:/cache` — Ken French ZIP cache.
 
 ## Logging
@@ -201,23 +201,23 @@ Two layers:
 - **Root aggregate log**: `<TRAIDER_LOG_DIR>/traider.log` (default
   `./logs/traider.log`). Captures the `traider`, `mcp`, `uvicorn*`,
   and `httpx` loggers.
-- **Per-connector logs**: `<TRAIDER_LOG_DIR>/<profile>.log` (e.g.
-  `logs/schwab.log`, `logs/fred.log`). Each connector's `register()`
+- **Per-provider logs**: `<TRAIDER_LOG_DIR>/<profile>.log` (e.g.
+  `logs/schwab.log`, `logs/fred.log`). Each provider's `register()`
   calls `attach_profile_logger("traider.<name>", settings.log_file("<name>"))`.
 
 Rotation: 5 MB × 3 backups on every handler. Tool handlers wrap their
 bodies in `logger.exception(...)`, so the full traceback for a failed
-tool call lands in the relevant per-connector log. **When a tool
+tool call lands in the relevant per-provider log. **When a tool
 call fails, read the log file before asking the user for the
 traceback** — MCP transports often hide stdout/stderr from the agent
 calling tools.
 
-## Adding a new connector
+## Adding a new provider
 
 Mirror an existing small one (e.g. `news/` or `treasury/`):
 
 ```
-src/traider/connectors/<name>/
+src/traider/providers/<name>/
 ├── __init__.py          # one-line module docstring
 ├── tools.py             # def register(mcp, settings)
 └── <client>.py          # thin httpx wrapper (or scraper, or parser)
@@ -232,9 +232,9 @@ Then:
 3. **Add env-var docs** to `.env.dist`.
 4. **Link from root docs**: row in the profile table in `README.md`
    and `AGENTS.md`, plus a section in this file's
-   [per-connector dev notes](#per-connector-dev-notes).
+   [per-provider dev notes](#per-provider-dev-notes).
 
-Conventions shared across connectors:
+Conventions shared across providers:
 
 - Clients are thin (one method per upstream endpoint). JSON comes
   back essentially unchanged so the model sees the raw shape.
@@ -248,9 +248,9 @@ Conventions shared across connectors:
 
 ---
 
-## Per-connector dev notes
+## Per-provider dev notes
 
-Each subsection captures the dev-oriented content from the connector's
+Each subsection captures the dev-oriented content from the provider's
 original per-server AGENTS.md: internals, secrets, gotchas, and "what
 not to do." Runtime analyst guidance lives in the root
 [AGENTS.md](AGENTS.md).
@@ -337,7 +337,7 @@ without (a) Office installed and (b) a plan to use
 - Don't introduce an ORM, a database, or a queue. Thin HTTP client
   plus MCP surface — keep it thin.
 - Don't add write operations. Schwab's API supports them; this
-  connector does not, by policy.
+  provider does not, by policy.
 - Don't paper over rate limits with exponential-retry loops. One retry
   for a transient 5xx is fine; 429s should propagate.
 - Don't re-attempt the RTD COM path without Office's MSO TLB and a

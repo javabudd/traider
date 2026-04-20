@@ -1,11 +1,11 @@
-"""FastMCP server that lazy-loads connector modules by profile.
+"""FastMCP server that lazy-loads provider modules by profile.
 
 One server, one port, one MCP surface. Which tools are exposed is
 controlled at startup by ``TRAIDER_TOOLS`` in the environment:
 
     TRAIDER_TOOLS=schwab,fred,sec-edgar,factor,treasury,news
 
-Each name maps to a connector module under ``traider.connectors``.
+Each name maps to a provider module under ``traider.providers``.
 The module exposes ``register(mcp, settings)`` which installs its
 tools on the shared ``FastMCP`` instance. Modules for *disabled*
 profiles are never imported, so their third-party dependencies
@@ -28,16 +28,16 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from .settings import TraiderSettings, load_settings
 
-# Canonical profile→module map. New connectors get one line here.
+# Canonical profile→module map. New providers get one line here.
 PROFILES: dict[str, str] = {
-    "schwab":       "traider.connectors.schwab.tools",
-    "yahoo":        "traider.connectors.yahoo.tools",
-    "fred":         "traider.connectors.fred.tools",
-    "fed-calendar": "traider.connectors.fed_calendar.tools",
-    "sec-edgar":    "traider.connectors.sec_edgar.tools",
-    "factor":       "traider.connectors.factor.tools",
-    "treasury":     "traider.connectors.treasury.tools",
-    "news":         "traider.connectors.news.tools",
+    "schwab":       "traider.providers.schwab.tools",
+    "yahoo":        "traider.providers.yahoo.tools",
+    "fred":         "traider.providers.fred.tools",
+    "fed-calendar": "traider.providers.fed_calendar.tools",
+    "sec-edgar":    "traider.providers.sec_edgar.tools",
+    "factor":       "traider.providers.factor.tools",
+    "treasury":     "traider.providers.treasury.tools",
+    "news":         "traider.providers.news.tools",
 }
 
 # Backends that expose the same market-data surface; pick one.
@@ -123,7 +123,7 @@ def main() -> None:
 
     if not settings.profiles:
         logger.warning(
-            "TRAIDER_TOOLS is empty — no connectors will be loaded"
+            "TRAIDER_TOOLS is empty — no providers will be loaded"
         )
 
     _validate_profiles(settings.profiles)

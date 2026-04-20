@@ -1,7 +1,7 @@
-"""Runtime settings shared across the hub and per-connector modules.
+"""Runtime settings shared across the hub and per-provider modules.
 
 Settings carry the *parsed* shape of the environment so individual
-connector ``register()`` functions don't each re-parse env vars.
+provider ``register()`` functions don't each re-parse env vars.
 """
 from __future__ import annotations
 
@@ -12,17 +12,17 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class TraiderSettings:
-    """Shared settings passed to every connector's ``register()``.
+    """Shared settings passed to every provider's ``register()``.
 
     Attributes:
         profiles: Ordered tuple of enabled profile names (e.g.
             ``("schwab", "fred", "news")``). Driven by
             ``TRAIDER_TOOLS`` (comma-separated).
-        log_dir: Base directory for per-connector log files. Each
-            connector writes to ``<log_dir>/<profile>.log``. Override
+        log_dir: Base directory for per-provider log files. Each
+            provider writes to ``<log_dir>/<profile>.log``. Override
             with ``TRAIDER_LOG_DIR`` (default: ``logs/`` in cwd).
         extra: Opaque pass-through map of the process env, so
-            connector-specific vars (``FRED_API_KEY``,
+            provider-specific vars (``FRED_API_KEY``,
             ``SCHWAB_TOKEN_FILE``, …) remain readable without
             re-reading ``os.environ`` in every module.
     """
@@ -32,7 +32,7 @@ class TraiderSettings:
     extra: dict[str, str] = field(default_factory=dict)
 
     def log_file(self, profile: str) -> Path:
-        """Path to the log file for one connector/profile."""
+        """Path to the log file for one provider/profile."""
         return self.log_dir / f"{profile}.log"
 
 

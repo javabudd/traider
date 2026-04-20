@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# Single unified image for the traider hub. All connector deps are
+# Single unified image for the traider hub. All provider deps are
 # installed once; which tool groups actually run inside is gated by
 # TRAIDER_TOOLS at startup (see src/traider/server.py).
 

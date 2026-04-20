@@ -18,7 +18,7 @@ fetches, compiles, parses, and explains.
 
 See [AGENTS.md](AGENTS.md) for the runtime analyst guidance that gets
 loaded into your AI CLI's context. Internals for modifying the code
-(how profiles load, how to add a connector) live in
+(how profiles load, how to add a provider) live in
 [DEVELOPING.md](DEVELOPING.md) and are intentionally not auto-loaded.
 
 ## Layout
@@ -34,7 +34,7 @@ traider/
 ├── src/traider/
 │   ├── server.py             # FastMCP server + profile loader
 │   ├── settings.py           # TraiderSettings, TRAIDER_TOOLS parsing
-│   └── connectors/
+│   └── providers/
 │       ├── schwab/           # Schwab Trader API + auth
 │       ├── yahoo/            # Yahoo Finance (via yfinance)
 │       ├── fred/             # FRED macro data / release calendar
@@ -43,11 +43,11 @@ traider/
 │       ├── factor/           # Ken French data library
 │       ├── treasury/         # US Treasury Fiscal Data
 │       └── news/             # Massive news API
-└── logs/                     # per-connector runtime logs
+└── logs/                     # per-provider runtime logs
 ```
 
-Each connector under `src/traider/connectors/` is a module with its
-own `AGENTS.md` and `README.md`. Connector modules are loaded
+Each provider under `src/traider/providers/` is a module with its
+own `AGENTS.md` and `README.md`. Provider modules are loaded
 **lazily** — only the ones listed in `TRAIDER_TOOLS` are imported,
 so you don't pay the dep-load or warmup cost for groups you aren't
 using.
@@ -157,7 +157,7 @@ docker compose up -d
 ```
 
 The MCP endpoint is exposed at `http://localhost:8765/mcp`. Per-
-connector log files land in `./logs/` on the host
+provider log files land in `./logs/` on the host
 (`schwab.log`, `fred.log`, …) plus an aggregated `traider.log`.
 
 Switch profile mix: edit `TRAIDER_TOOLS` in `.env`, then
@@ -249,4 +249,4 @@ list them under `"env"` in the server entry.
   Store credentials in the repo or in logs.
 
 See [AGENTS.md](AGENTS.md) for the full set of traider-wide
-constraints (which every connector module inherits).
+constraints (which every provider module inherits).
