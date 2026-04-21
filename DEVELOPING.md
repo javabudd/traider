@@ -1,6 +1,6 @@
 # DEVELOPING.md — traider
 
-Developer overlay for the `traider` hub. For runtime / analyst
+Developer overlay for `traider`. For runtime / analyst
 guidance — the docs that get loaded into an AI CLI's context — see
 [AGENTS.md](AGENTS.md). This file is for humans (and coding agents)
 touching the code.
@@ -24,6 +24,7 @@ touching the code.
   - [factor](#factor)
   - [treasury](#treasury)
   - [news](#news)
+  - [earnings](#earnings)
 
 ---
 
@@ -95,6 +96,10 @@ src/traider/
       __init__.py
       tools.py
       massive_client.py    # httpx wrapper around /v2/reference/news
+    earnings/
+      __init__.py
+      tools.py
+      finnhub_client.py    # httpx wrapper around Finnhub calendar/earnings
 ```
 
 Each provider is **self-contained under its directory** — imports
@@ -791,7 +796,7 @@ in the projection and defaults.
 
 **What it is.** Read-only bridge to Massive's
 `/v2/reference/news` endpoint. The rest of Massive's surface (quotes,
-aggregates, trades) is intentionally out of scope — the hub already
+aggregates, trades) is intentionally out of scope — traider already
 has dedicated market-data backends.
 
 Articles carry publisher metadata, the tickers they reference, and a
@@ -825,9 +830,76 @@ request. Do not log it.
 
 - Don't expand into Massive's other endpoints (aggregates, trades,
   fundamentals) — re-introduces the "which provider owns quotes?"
-  routing ambiguity the hub avoids.
+  routing ambiguity traider avoids.
 - Don't cache responses silently. News freshness is the whole point;
   a stale cache hit defeats the tool.
 - Don't retry 429s internally.
 - Don't blend Massive's feed with another news provider in one tool
   call. A second news source gets its own provider.
+
+### earnings
+
+**What it is.** Read-only bridge to
+[Finnhub](https://finnhub.io/docs/api). Two free-tier endpoints:
+
+- ``/calendar/earnings`` — forward- and backward-looking earnings
+  calendar with consensus EPS / revenue.
+- ``/stock/earnings`` — per-ticker history of EPS actual vs.
+  estimate (surprise%).
+
+Everything else on Finnhub's surface (quotes, fundamentals,
+sentiment, recommendation trends, ...) is intentionally out of
+scope — quotes stay on the market-data backend, filings on
+``sec-edgar``, news on ``news``.
+
+**Secrets.** ``FINNHUB_API_KEY`` (register at
+<https://finnhub.io>). Sent as the ``X-Finnhub-Token`` header on
+every request. Do not log it and do not fall through to a header-
+less request — free tier returns 401 without the token.
+
+**Things that will bite you.**
+
+- **Free-tier coverage is US issuers.** Finnhub's ``international``
+  flag on the calendar endpoint requires a paid plan; this client
+  does not expose it. If a ticker looks right but the calendar
+  returns empty, it's likely a non-US listing.
+- **Rate limit is 60 req/min.** Enforced upstream; 429s propagate
+  as ``FinnhubError`` with no retry loop. A fan-out over many
+  tickers will trip it — prefer one cross-market calendar call
+  over per-ticker loops when possible.
+- **Consensus is Finnhub's aggregation.** ``epsEstimate`` /
+  ``revenueEstimate`` are Finnhub's sell-side consensus, not a
+  primary-source fact. Quote with attribution. Actuals (``epsActual``
+  / ``revenueActual``) *are* primary — they come from the 8-K /
+  earnings release.
+- **``hour`` field semantics.** ``"bmo"`` = before market open,
+  ``"amc"`` = after market close, ``"dmh"`` = during market hours,
+  ``""`` = not specified. The empty string is common for smaller
+  names — surface it, don't guess.
+- **``stock/earnings`` returns a list, not a dict.** The tool layer
+  wraps it in a dict so the response is citable (``source`` +
+  ``fetched_at`` envelope). Don't flatten that envelope without a
+  replacement for the provenance fields.
+- **Date format.** The calendar endpoint takes ``YYYY-MM-DD`` for
+  both ``from`` and ``to`` and requires both — there's no
+  "one day" shortcut. The tool defaults ``to_date`` to
+  ``from_date + 14`` days so the common "upcoming two weeks" query
+  is a zero-arg call.
+- **EPS units.** Reported in USD per share, regardless of the
+  issuer's primary currency. Revenue is in USD (absolute dollars,
+  not thousands).
+
+**What not to do.**
+
+- Don't add an OAuth flow — Finnhub is a static API key.
+- Don't widen the tool surface to quotes / fundamentals /
+  sentiment. Re-introduces the "which provider owns quotes?"
+  ambiguity traider was consolidated to avoid.
+- Don't retry 429s internally — surface them so the user can back
+  off.
+- Don't cache responses silently. Earnings dates and consensus
+  shift as analysts revise; a stale cache hit would feed wrong
+  numbers into a recommendation.
+- Don't reshape the Finnhub JSON beyond adding the ``source`` /
+  ``fetched_at`` envelope. The model reads raw fields
+  (``hour``, ``epsEstimate``, ``surprisePercent``) directly.

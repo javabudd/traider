@@ -19,11 +19,19 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   Deferred from v1: Form 4 insider-scoped queries, 13F reverse
   lookup (who holds X?), submissions-feed overflow fan-out for deep
   history.
-- [ ] **earnings** — earnings calendar, consensus estimates,
-  surprises, guidance. Candidate sources: Finnhub (free tier has
-  earnings calendar + estimates), Zacks RSS, Nasdaq Data Link. Likely
-  needs a paid tier for quality estimates — flag trade-offs before
-  picking.
+- [x] **earnings** — shipped as a provider module under the unified
+  server (no separate port). Wraps Finnhub's free-tier
+  ``/calendar/earnings`` (forward + backward earnings calendar with
+  consensus EPS / revenue) and ``/stock/earnings`` (per-ticker
+  historical actual-vs-estimate surprises). Primary source:
+  `finnhub.io/api/v1`. Auth: ``FINNHUB_API_KEY`` as
+  ``X-Finnhub-Token`` header. Rate limit: 60 req/min, propagates as
+  ``FinnhubError``. Free-tier coverage is US-only; international
+  calendar is paid and deliberately not wired. Dev notes in
+  [DEVELOPING.md § earnings](DEVELOPING.md#earnings).
+  Deferred: consensus guidance breakouts, analyst revisions (both
+  paid-tier on Finnhub), alternative sources (Zacks RSS, Nasdaq
+  Data Link).
 - [x] **news** — shipped on port 8770. Wraps Massive's
   `/v2/reference/news` (ticker-scoped headlines with publisher
   metadata and per-article sentiment insights). Primary source:
@@ -105,7 +113,7 @@ simple. Current + planned assignments:
 | 8766 | fred                       | shipped |
 | 8767 | fed-calendar               | shipped |
 | 8768 | sec-edgar                  | shipped |
-| 8769 | earnings                   | planned |
+| 8769 | earnings                   | shipped (in-process on 8765) |
 | 8770 | news                       | shipped |
 | 8771 | factor                     | shipped |
 | 8772 | treasury                   | shipped |
