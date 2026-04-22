@@ -60,6 +60,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         from_date: str | None = None,
         to_date: str | None = None,
         symbol: str | None = None,
+        symbols: list[str] | None = None,
     ) -> dict[str, Any]:
         """Upcoming (and recent) earnings announcements with consensus.
 
@@ -73,9 +74,17 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 14 days — a sensible two-week look-ahead for a
                 trading week review. Widen explicitly for longer
                 horizons.
-            symbol: Ticker (e.g. ``AAPL``) to narrow to a single
-                issuer. Omit for the cross-market calendar across the
+            symbol: Single ticker (e.g. ``AAPL``) to narrow to one
+                issuer — sent to Finnhub as a server-side filter.
+                Omit for the cross-market calendar across the
                 window — response can be large.
+            symbols: List of tickers to keep (e.g.
+                ``["AAPL", "MSFT", "NVDA"]``). Applied as a
+                post-processing filter on the cross-market calendar
+                (one upstream request, then client-side narrowing),
+                so it does not multiply the rate-limit cost.
+                Comparison is case-insensitive. Mutually exclusive
+                with ``symbol``.
 
         Returns:
             A dict with ``source``, ``fetched_at``, and Finnhub's
@@ -93,18 +102,31 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             - ``revenueEstimate`` / ``revenueActual`` — same, for
               revenue (in USD).
 
+            When ``symbols`` is supplied, the response also echoes
+            the requested list under ``symbols`` and reports any
+            tickers that had no entries in the window under
+            ``symbols_missing`` — useful for spotting typos or names
+            Finnhub's free tier doesn't cover.
+
             Consensus estimates are Finnhub's aggregate of sell-side
             analysts. Quote them with attribution; they are *not* a
             primary source like an SEC filing.
         """
+        if symbol and symbols:
+            raise ValueError("pass either symbol or symbols, not both")
+
         start = from_date or _today_utc_iso()
         end = to_date or (
             (datetime.fromisoformat(start) + timedelta(days=14)).date().isoformat()
         )
 
+        symbols_upper = (
+            [s.upper() for s in symbols if s] if symbols else None
+        )
+
         logger.info(
-            "get_earnings_calendar from=%s to=%s symbol=%s",
-            start, end, symbol,
+            "get_earnings_calendar from=%s to=%s symbol=%s symbols=%s",
+            start, end, symbol, symbols_upper,
         )
         try:
             payload = _get_client().calendar_earnings(
@@ -114,19 +136,34 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             logger.exception("get_earnings_calendar failed")
             raise
 
+        entries = payload.get("earningsCalendar", []) or []
+        symbols_missing: list[str] | None = None
+        if symbols_upper:
+            wanted = set(symbols_upper)
+            entries = [
+                row for row in entries
+                if str(row.get("symbol", "")).upper() in wanted
+            ]
+            seen = {str(row.get("symbol", "")).upper() for row in entries}
+            symbols_missing = sorted(wanted - seen)
+
         source = (
             "https://finnhub.io/api/v1/calendar/earnings"
             f"?from={start}&to={end}"
             + (f"&symbol={symbol}" if symbol else "")
         )
-        return {
+        response: dict[str, Any] = {
             "source": source,
             "fetched_at": _now_iso(),
             "from_date": start,
             "to_date": end,
             "symbol": symbol,
-            "earningsCalendar": payload.get("earningsCalendar", []),
+            "earningsCalendar": entries,
         }
+        if symbols_upper is not None:
+            response["symbols"] = symbols_upper
+            response["symbols_missing"] = symbols_missing
+        return response
 
     @mcp.tool()
     def get_earnings_surprises(
