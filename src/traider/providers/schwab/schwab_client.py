@@ -354,6 +354,63 @@ class SchwabClient:
             f"/trader/v1/accounts/{account_hash}", params=params
         )
 
+    def get_transactions(
+        self,
+        account_hash: str,
+        start_date: str,
+        end_date: str,
+        symbol: str | None = None,
+        types: str | list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Transaction history from
+        ``/trader/v1/accounts/{hash}/transactions``.
+
+        Args:
+            account_hash: Hashed account ID (from
+                :meth:`get_account_numbers`).
+            start_date: Lower bound. ``YYYY-MM-DD`` (expanded to
+                ``00:00:00.000Z``) or full ISO-8601 UTC datetime.
+            end_date: Upper bound. ``YYYY-MM-DD`` (expanded to
+                ``23:59:59.999Z``) or full ISO-8601 UTC datetime.
+            symbol: Filter by symbol. Options accept the 21-char OSI
+                form.
+            types: Filter by transaction type(s). Accepts a single type
+                name, a list, or a comma-separated string. See Schwab
+                docs for the full vocabulary — common values are
+                ``TRADE``, ``RECEIVE_AND_DELIVER``,
+                ``DIVIDEND_OR_INTEREST``, ``ACH_RECEIPT``,
+                ``ACH_DISBURSEMENT``, ``CASH_RECEIPT``,
+                ``CASH_DISBURSEMENT``, ``ELECTRONIC_FUND``,
+                ``WIRE_IN``, ``WIRE_OUT``, ``JOURNAL``,
+                ``MEMORANDUM``, ``MARGIN_CALL``, ``MONEY_MARKET``,
+                ``SMA_ADJUSTMENT``.
+        """
+        params: dict[str, Any] = {
+            "startDate": _normalize_iso_datetime(start_date, end_of_day=False),
+            "endDate": _normalize_iso_datetime(end_date, end_of_day=True),
+        }
+        if symbol is not None:
+            params["symbol"] = symbol
+        if types is not None:
+            params["types"] = (
+                ",".join(types) if isinstance(types, list) else types
+            )
+        data = self._get_json(
+            f"/trader/v1/accounts/{account_hash}/transactions", params=params
+        )
+        return data if isinstance(data, list) else []
+
+    def get_transaction(
+        self,
+        account_hash: str,
+        transaction_id: str | int,
+    ) -> dict[str, Any]:
+        """Single transaction by ID from
+        ``/trader/v1/accounts/{hash}/transactions/{id}``."""
+        return self._get_json(
+            f"/trader/v1/accounts/{account_hash}/transactions/{transaction_id}"
+        )
+
     def close(self) -> None:
         self._http.close()
 
@@ -445,6 +502,22 @@ class SchwabClient:
         }
         self._save_tokens(tokens)
         return tokens
+
+
+def _normalize_iso_datetime(value: str, end_of_day: bool = False) -> str:
+    """Accept ``YYYY-MM-DD`` or full ISO-8601; return full ISO-8601 UTC.
+
+    Schwab's transaction endpoints require ``startDate`` / ``endDate`` in
+    ISO-8601 form with milliseconds and a trailing ``Z``, e.g.
+    ``2024-01-01T00:00:00.000Z``. Pure-date inputs expand to the start of
+    day (or end of day when ``end_of_day=True``) to preserve the
+    intuitive "April 1 through April 21 inclusive" semantics most
+    callers expect.
+    """
+    if "T" in value:
+        return value
+    suffix = "T23:59:59.999Z" if end_of_day else "T00:00:00.000Z"
+    return f"{value}{suffix}"
 
 
 def _extract_field(quote: dict[str, Any], field: str) -> Any:

@@ -320,6 +320,28 @@ without (a) Office installed and (b) a plan to use
 - **Candle timestamps are epoch ms UTC.** Convert to
   `America/New_York` when formatting for display or computing session
   boundaries.
+- **Transactions endpoint takes ISO-8601 with milliseconds.**
+  `startDate` / `endDate` on `/trader/v1/accounts/{hash}/transactions`
+  require the full `YYYY-MM-DDTHH:MM:SS.000Z` shape — a bare
+  `YYYY-MM-DD` 400s. `_normalize_iso_datetime()` in `schwab_client.py`
+  expands pure dates (start→`00:00:00.000Z`, end→`23:59:59.999Z`) so
+  the tool can accept either shape from the model. Don't reach into
+  that helper to drop the ms — Schwab rejects `...:00Z`.
+- **Transaction records nest the per-leg details in `transferItems`.**
+  A single `TRADE` record carries an array: one entry per leg
+  (each with `price`, `amount` as signed quantity, `cost`, and an
+  `instrument` block) plus separate entries for commissions and
+  fees marked with `feeType`. Don't read `transaction.price` as the
+  fill price — that field is a summary / may not be set. Iterate
+  `transferItems` and filter on the instrument to reconstruct leg
+  fills, commissions, and realized P&L.
+- **Account number vs. hash.** `/trader/v1/accounts` returns the
+  plaintext `accountNumber`; every other `/trader/v1/accounts/{X}`
+  endpoint expects the `hashValue` from
+  `/trader/v1/accounts/accountNumbers`. `get_account_numbers` is the
+  discovery tool. The `get_transactions` tool auto-resolves when
+  exactly one account is authorized, so single-account users can skip
+  the lookup; multi-account users must pass `account_hash` explicitly.
 - **TA-Lib is a C dep.** Use conda-forge (`ta-lib`) or the distro
   package; the pip wrapper needs the native library present first. If
   the wrapper imports but returns garbage, check the C lib version

@@ -471,6 +471,137 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         return result
 
     @mcp.tool()
+    def get_account_numbers() -> list[dict[str, Any]]:
+        """Plaintext account number → hashed account ID mapping.
+
+        Every ``/trader/v1/accounts/{hash}/...`` endpoint in traider
+        takes the hashed form (``hashValue``). Use this tool to discover
+        which hash corresponds to a given plaintext account number on
+        your Schwab login.
+
+        Returns a list of ``{"accountNumber", "hashValue"}`` pairs.
+        """
+        logger.info("get_account_numbers")
+        try:
+            result = _get_client().get_account_numbers()
+        except Exception:
+            logger.exception("get_account_numbers failed")
+            raise
+        logger.info("get_account_numbers result count=%d", len(result))
+        return result
+
+    def _resolve_account_hash(explicit: str | None) -> str:
+        if explicit is not None:
+            return explicit
+        accounts = _get_client().get_account_numbers()
+        if len(accounts) == 1:
+            return accounts[0]["hashValue"]
+        if not accounts:
+            raise RuntimeError(
+                "no authorized Schwab accounts on this token — "
+                "re-run: traider auth schwab"
+            )
+        hashes = [a.get("hashValue") for a in accounts]
+        raise RuntimeError(
+            "multiple authorized accounts — pass account_hash explicitly; "
+            f"available hashValues: {hashes}"
+        )
+
+    @mcp.tool()
+    def get_transactions(
+        start_date: str,
+        end_date: str,
+        account_hash: str | None = None,
+        symbol: str | None = None,
+        types: str | list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Transaction history for one account (read-only).
+
+        Returns raw Schwab transaction records — trades (with fill
+        prices, per-leg amounts, commissions, fees), dividends,
+        interest, transfers, journal entries, etc. Use this to
+        reconstruct realized P&L, check actual fill prices against
+        marks, track cost basis for wash-sale windows, or audit
+        closing-trade prices on options that printed far from mid.
+
+        Args:
+            start_date: Lower bound. ``YYYY-MM-DD`` (treated as start
+                of day UTC) or full ISO-8601 UTC datetime like
+                ``2026-04-01T14:30:00.000Z``. Required.
+            end_date: Upper bound. ``YYYY-MM-DD`` (treated as end of
+                day UTC) or full ISO-8601 UTC datetime. Required.
+            account_hash: Hashed account ID from
+                ``get_account_numbers``. If ``None`` and exactly one
+                account is authorized, it is resolved automatically;
+                otherwise the tool raises with the available hashes.
+            symbol: Filter to one symbol. For options, use the 21-char
+                OSI form (e.g. ``"SPY   260501P00705000"``).
+            types: Filter by transaction type. Accepts a single type
+                string, a list, or a comma-separated string. Common:
+                ``TRADE`` (opens/closes), ``RECEIVE_AND_DELIVER``
+                (option assignment / exercise),
+                ``DIVIDEND_OR_INTEREST``, ``ACH_RECEIPT``,
+                ``ACH_DISBURSEMENT``, ``CASH_RECEIPT``,
+                ``CASH_DISBURSEMENT``, ``ELECTRONIC_FUND``,
+                ``WIRE_IN``, ``WIRE_OUT``, ``JOURNAL``,
+                ``MEMORANDUM``, ``MARGIN_CALL``, ``MONEY_MARKET``,
+                ``SMA_ADJUSTMENT``.
+
+        Each trade record's ``transferItems`` array holds per-leg
+        fills with ``price``, ``amount`` (signed quantity), ``cost``,
+        and the ``instrument`` block (symbol, option multiplier,
+        underlying). Commissions and fees appear as separate
+        ``transferItems`` entries with ``feeType`` populated. Schwab
+        typically caps the lookback at ~1 year — narrow the window if
+        the API errors on a long range.
+        """
+        logger.info(
+            "get_transactions start=%s end=%s symbol=%s types=%s account=%s",
+            start_date, end_date, symbol, types,
+            "<auto>" if account_hash is None else "<explicit>",
+        )
+        try:
+            resolved = _resolve_account_hash(account_hash)
+            result = _get_client().get_transactions(
+                account_hash=resolved,
+                start_date=start_date,
+                end_date=end_date,
+                symbol=symbol,
+                types=types,
+            )
+        except Exception:
+            logger.exception("get_transactions failed")
+            raise
+        logger.info("get_transactions result count=%d", len(result))
+        return result
+
+    @mcp.tool()
+    def get_transaction(
+        transaction_id: str,
+        account_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Single transaction by ID (read-only).
+
+        Args:
+            transaction_id: Schwab transaction / activity ID — the
+                ``activityId`` field on a record returned by
+                ``get_transactions``.
+            account_hash: Same rules as ``get_transactions`` —
+                optional when exactly one account is authorized.
+        """
+        logger.info(
+            "get_transaction id=%s account=%s",
+            transaction_id,
+            "<auto>" if account_hash is None else "<explicit>",
+        )
+        try:
+            resolved = _resolve_account_hash(account_hash)
+            return _get_client().get_transaction(resolved, transaction_id)
+        except Exception:
+            logger.exception("get_transaction failed id=%s", transaction_id)
+            raise
+
+    @mcp.tool()
     def analyze_returns(
         symbol: str,
         period_type: str = "year",

@@ -63,7 +63,7 @@ TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 
 | Provider       | Tool group                        | Creds required                  |
 |----------------|-----------------------------------|---------------------------------|
-| `schwab`       | Schwab market data + accounts     | Schwab app key/secret + OAuth   |
+| `schwab`       | Schwab market data + accounts + trade history | Schwab app key/secret + OAuth |
 | `yahoo`        | Yahoo Finance market data         | None                            |
 | `fred`         | FRED macro / release calendar     | `FRED_API_KEY` (free)           |
 | `fed-calendar` | FOMC meeting calendar             | None                            |

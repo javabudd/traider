@@ -12,9 +12,10 @@ Once the server is running and Claude is connected, Claude gets the
 tools below. All are **read-only** — no orders, no alerts, no writes.
 
 Market-data tools (quotes, candles, TA, movers, instruments, hours)
-hit `/marketdata/v1/*`. Account tools hit `/trader/v1/accounts/*`.
-The `analyze_*` tools fetch candles and then run pure-numpy analytics
-on them locally — no extra API calls per metric.
+hit `/marketdata/v1/*`. Account tools (positions snapshot, hashed
+account IDs, transaction history) hit `/trader/v1/accounts/*`. The
+`analyze_*` tools fetch candles and then run pure-numpy analytics on
+them locally — no extra API calls per metric.
 
 ### `get_quote(symbol, field="LAST")`
 
@@ -243,6 +244,51 @@ All authorized accounts. With `include_positions=True`, each account
 includes its `positions` array — quantity, cost basis, market value,
 and unrealized P&L per holding. Read-only; no order data.
 
+### `get_account_numbers()`
+
+Plaintext account number → hashed account ID (`hashValue`) mapping.
+Every `/trader/v1/accounts/{hash}/...` endpoint takes the hashed
+form, so this is the discovery tool for the inputs to
+`get_transactions` / `get_transaction` when multiple accounts are
+authorized.
+
+### `get_transactions(start_date, end_date, account_hash=None, symbol=None, types=None)`
+
+Historical transaction records for one account. Use this to
+reconstruct realized P&L, check actual fill prices against marks
+(particularly on options whose mark drifted from any tradeable
+price), track cost basis for wash-sale windows, or audit closing
+trades after the fact.
+
+- `start_date` / `end_date` — either `YYYY-MM-DD` (expanded to
+  start-of-day / end-of-day UTC) or a full ISO-8601 UTC datetime
+  like `2026-04-01T14:30:00.000Z`. Both required.
+- `account_hash` — optional. If omitted and exactly one account is
+  authorized, it's resolved automatically; otherwise the tool raises
+  listing the available hashes.
+- `symbol` — filter to one symbol. Options take the 21-char OSI form
+  (e.g. `"SPY   260501P00705000"`).
+- `types` — filter by transaction type. Single type, a list, or a
+  comma-separated string. Common values: `TRADE`,
+  `RECEIVE_AND_DELIVER` (option assignment/exercise),
+  `DIVIDEND_OR_INTEREST`, `ACH_RECEIPT`, `ACH_DISBURSEMENT`,
+  `CASH_RECEIPT`, `CASH_DISBURSEMENT`, `ELECTRONIC_FUND`,
+  `WIRE_IN`, `WIRE_OUT`, `JOURNAL`, `MEMORANDUM`, `MARGIN_CALL`,
+  `MONEY_MARKET`, `SMA_ADJUSTMENT`.
+
+Each trade record's `transferItems` array holds the per-leg fills
+with `price`, `amount` (signed quantity), `cost`, and the
+`instrument` block (symbol, option multiplier, underlying).
+Commissions and fees appear as separate `transferItems` entries with
+`feeType` populated. Schwab typically caps the lookback at ~1 year —
+narrow the window if the API errors on a long range.
+
+### `get_transaction(transaction_id, account_hash=None)`
+
+Single transaction by ID — the `activityId` field on a record
+returned by `get_transactions`. `account_hash` auto-resolves under
+the same rules as `get_transactions`.
+
 ### `analyze_returns(symbol, ...)`
 
 Return/risk summary for one instrument. Fetches candles with the
@@ -336,6 +382,18 @@ most of these examples intentionally pull from several at once.
 - "For each position, check whether the underlying's realized-vol
   regime is elevated or extreme — I want to know where risk has
   picked up."
+
+### Trade history / realized P&L
+
+- "Show my TRADE-type transactions for the last 30 days."
+- "What price did I actually close the KRE 5/15 71C at on 2026-04-22
+  — the mark was $1.27 but the bid looked thin."
+- "Pull all RECEIVE_AND_DELIVER records for 2026 — any option
+  assignments I should be aware of?"
+- "Reconstruct my realized P&L for April: sum cost across
+  TRADE transactions grouped by underlying."
+- "Check whether I closed SPY puts in the last 30 days before I
+  re-open a similar strike — I want to avoid a wash sale."
 
 ### Macro / cross-asset
 
