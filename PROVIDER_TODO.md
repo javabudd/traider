@@ -9,7 +9,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
 
 ## Tier 1 — catalysts & fundamentals depth
 
-- [x] **sec-edgar** — shipped on port 8768. Filings
+- [x] **sec-edgar** — shipped. Filings
   (10-K/10-Q/8-K/20-F), Form 4 insider transactions per issuer, 13F
   institutional portfolios per manager, XBRL company facts + frames.
   Primary source: `data.sec.gov` / `efts.sec.gov`. Auth: descriptive
@@ -20,7 +20,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   lookup (who holds X?), submissions-feed overflow fan-out for deep
   history.
 - [x] **earnings** — shipped as a provider module under the unified
-  server (no separate port). Wraps Finnhub's free-tier
+  server. Wraps Finnhub's free-tier
   ``/calendar/earnings`` (forward + backward earnings calendar with
   consensus EPS / revenue) and ``/stock/earnings`` (per-ticker
   historical actual-vs-estimate surprises). Primary source:
@@ -34,7 +34,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   estimates / revisions / price targets have graduated to the
   `estimates` entry below — they're a top-three gap on single-name
   analysis and deserve their own lane.
-- [x] **news** — shipped on port 8770. Wraps Massive's
+- [x] **news** — shipped. Wraps Massive's
   `/v2/reference/news` (ticker-scoped headlines with publisher
   metadata and per-article sentiment insights). Primary source:
   `api.massive.com`. Auth: `MASSIVE_API_KEY` as `apiKey` query param.
@@ -64,10 +64,14 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
 
 - [ ] **bls** — BLS direct (CPI, NFP, JOLTS). FRED mirrors these but
   BLS is the primary publisher and releases a few minutes earlier.
-  Worth it for release-day precision.
+  Worth it for release-day precision. Primary source:
+  `api.bls.gov/publicAPI/v2`. Auth: optional `BLS_API_KEY` (raises
+  daily quota from 25 to 500 series/day).
 - [ ] **bea** — BEA direct (GDP components, personal income, trade
-  balance). Same rationale as BLS.
-- [x] **treasury** — shipped on port 8772. Treasury Fiscal Data
+  balance). Same rationale as BLS. Primary source:
+  `apps.bea.gov/api/data`. Auth: mandatory `BEA_API_KEY` (free,
+  email-issued).
+- [x] **treasury** — shipped. Treasury Fiscal Data
   (`api.fiscaldata.treasury.gov`) auction results (bid-to-cover,
   stop-out yield, primary-dealer takedown, indirect/direct bidder
   share), Daily Treasury Statement (eight tables — operating cash
@@ -78,8 +82,10 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   [src/traider/providers/treasury/README.md](src/traider/providers/treasury/README.md).
 - [ ] **eia** — US Energy Information Administration: weekly
   petroleum status, natural gas storage, electricity. Critical for
-  energy-name trades.
-- [ ] **global-cb** — ECB SDW, BoJ, BoE statistical releases. Per
+  energy-name trades. Primary source: `api.eia.gov/v2`. Auth:
+  mandatory `EIA_API_KEY` (free).
+- [ ] **global-cb** — ECB (`data.ecb.europa.eu`, the new Data
+  Portal that superseded SDW), BoJ, BoE statistical releases. Per
   hub rule: land one central bank at a time, each as its own module
   with its own primary-source client.
 - [ ] **credit** — High-yield and investment-grade OAS, CDX IG /
@@ -87,9 +93,9 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   FRED mirrors are reachable (BAMLH0A0HYM2, BAMLC0A0CM, etc.); a
   dedicated credit provider would add term structure and issuer-
   level data. Candidates: FINRA TRACE (corporate bond prints, free
-  but heavy normalization), Markit iTraxx / CDX (paid), ICE BofA
-  via FRED (partial). Priority because risk-off regimes usually
-  show up in credit spreads before equities.
+  but heavy normalization), S&P Global / IHS Markit iTraxx / CDX
+  (paid), ICE BofA via FRED (partial). Priority because risk-off
+  regimes usually show up in credit spreads before equities.
 - [ ] **commodities** — Futures prices and continuous-contract
   series (WTI / Brent, natgas, gold / silver, copper, grains),
   forward curves where published. Candidates: Yahoo `=F` tickers
@@ -123,11 +129,14 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   (daily), ATS volume. Days-to-cover and utilization are load-
   bearing for squeeze framing and any short-side risk assessment.
 - [ ] **etf-flows** — ETF holdings, creations/redemptions, sector
-  rotation signal. Candidates: ICI, ETF.com, issuer feeds (iShares,
-  SPDR, Vanguard).
+  rotation signal. Candidates: ICI weekly flow reports (free, fund-
+  category level only), issuer feeds (iShares, SPDR, Vanguard —
+  free daily holdings as CSV/JSON), ETF.com and ETFdb (scraping,
+  ToS-restricted). No single clean source; expect per-issuer
+  adapters.
 - [ ] **cftc** — Commitments of Traders (futures positioning by
   trader class). Weekly release. Primary source:
-  `publicreporting.cftc.gov`.
+  `publicreporting.cftc.gov` (Socrata API, no auth required). Free.
 - [ ] **corporate-actions** — Historical splits, dividend payments
   (regular + special), spin-offs, symbol / name changes, M&A
   timelines. Required to (a) corporate-action-adjust historical
@@ -140,7 +149,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
 
 ## Tier 4 — risk, factor, account analytics
 
-- [x] **factor** — shipped on port 8771. Fama-French 3/5-factor,
+- [x] **factor** — shipped. Fama-French 3/5-factor,
   momentum, short/long-term reversal, and 5/10/12/17/30/38/48/49-
   industry portfolios at monthly and (where published) daily
   frequencies. Primary source: `mba.tuck.dartmouth.edu/…/ken.french/ftp/`.
@@ -164,29 +173,15 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
 ## Tier 5 — alt data (lower priority)
 
 - [ ] **trends** — Google Trends interest-over-time for ticker- or
-  theme-level attention signals.
-- [ ] **social** — Reddit (`pushshift`/`reddit.com/.json`), X
-  (requires paid tier post-2023). Sentiment is downstream of the data
+  theme-level attention signals. No official API; the only paths
+  are unofficial wrappers (`pytrends`) or scraping, both with ToS
+  friction and aggressive rate limiting. Treat as best-effort, not
+  a primary source.
+- [ ] **social** — Reddit (`reddit.com/.json`, heavily rate-limited
+  since the 2023 API changes — pushshift is no longer publicly
+  available), X (paid tier only post-2023), StockTwits (free REST,
+  the cleanest free option). Sentiment is downstream of the data
   fetch — keep this provider to fetching, not scoring.
 - [ ] **crypto** — CoinGecko (unauthenticated) or Binance public
   endpoints. Only add if the user starts asking crypto questions.
 
-## Port allocation
-
-Additive providers occupy contiguous ports to keep docker-compose
-simple. Current + planned assignments:
-
-| Port | Provider                   | Status  |
-|-----:|----------------------------|---------|
-| 8765 | schwab / yahoo (exclusive) | shipped |
-| 8766 | fred                       | shipped |
-| 8767 | fed-calendar               | shipped |
-| 8768 | sec-edgar                  | shipped |
-| 8769 | earnings                   | shipped (in-process on 8765) |
-| 8770 | news                       | shipped |
-| 8771 | factor                     | shipped |
-| 8772 | treasury                   | shipped |
-| …    | …                          | …       |
-
-Claim the next free port when starting a new provider. Update this
-table in the same commit.
