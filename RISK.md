@@ -1,11 +1,14 @@
 # RISK.md — trade preparation methodology
 
-Load this when the user is **preparing a specific trade** — sizing
-a position, placing a stop, setting a limit, computing risk/reward,
-or evaluating an option structure. For scoping questions (*"is SPY
-a buy?"*, *"how's my book?"*, *"what's the macro setup?"*), the
-analyst guidance in `AGENTS.md` is enough. Load this file when the
-question has moved from *should I* to *how would I*.
+Load this when **trade preparation is in scope** — whether the user
+put it there (sizing a position, placing a stop, setting a limit,
+computing risk/reward) or you did (you're about to recommend a
+specific entry/stop/target, flag wash-sale exposure, or suggest
+trimming a concentrated position as part of a broader answer). For
+pure scoping questions (*"is SPY a buy?"*, *"how's my book?"*,
+*"what's the macro setup?"*), the analyst guidance in `AGENTS.md`
+is enough. Load this file when the conversation has moved from
+*should I* to *how would I* — by either party.
 
 Nothing here overrides `AGENTS.md`'s read-only rule. You help the
 user compute sizes, levels, and risk; you never place the trade.

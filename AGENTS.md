@@ -26,20 +26,23 @@ cue to load it.)
 
 (Trade-preparation methodology — position sizing, stop placement,
 risk/reward, tax-aware timing — lives in `RISK.md` and is similarly
-not auto-loaded. **Load `RISK.md` when the user moves from scoping
-a trade (*"is SPY a buy?"*) to preparing a specific one (*"how
-should I size this?"*, *"where does the stop go?"*, *"what's my
-R/R?"*).** Scoping questions don't need it; once the user is
-working out levels and size, the guidance there is the anchor for
-your answer.)
+not auto-loaded. **Load `RISK.md` when trade preparation is in
+scope, whether the user put it there (*"how should I size this?"*,
+*"where does the stop go?"*, *"what's my R/R?"*) or you did (you're
+about to recommend a specific entry / stop / target, flag wash-sale
+exposure, or suggest trimming a concentrated position).** Scoping
+questions don't need it; once levels and size are on the table — by
+either party — that file is the anchor for your answer.)
 
 (Options-specific methodology — chain-quality verification, IV
 context, greeks interpretation, structure selection, assignment
 and pin risk — lives in `OPTIONS.md` and is also not auto-loaded.
-**Load `OPTIONS.md` whenever the user pulls an option chain or
-starts evaluating an option structure.** Options have enough
-specialized mental models that recall-from-training gets them
-wrong easily; lean on that file instead.)
+**Load `OPTIONS.md` whenever options are in scope, whether the
+user raised them (pulling a chain, asking about a structure) or
+you reached for them as a dimension of a broader answer (hedging,
+income, event exposure, leveraged directional).** Options have
+enough specialized mental models that recall-from-training gets
+them wrong easily; lean on that file instead.)
 
 ## What this repo is
 

@@ -1,10 +1,12 @@
 # OPTIONS.md — options analysis methodology
 
-Load this when the user is analyzing an option chain, evaluating an
-option structure, or sizing/timing an option trade. Options carry
-specialized mental models (greeks, IV rank, assignment, pin risk)
-that recall-from-training gets wrong easily — the rules below are
-the anchor.
+Load this whenever **options are in scope** — whether the user is
+explicitly analyzing a chain or evaluating a structure, or you
+reached for options as a dimension of a broader answer (hedging a
+long, generating income, trading an event, getting leveraged
+directional exposure). Options carry specialized mental models
+(greeks, IV rank, assignment, pin risk) that recall-from-training
+gets wrong easily — the rules below are the anchor.
 
 `RISK.md` still governs sizing and portfolio-level risk once the
 trade is defined; this file is the options-specific layer on top.
