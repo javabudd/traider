@@ -26,14 +26,16 @@ loaded into your AI CLI's context. Internals for modifying the code
 ```
 traider/
 ├── AGENTS.md                 # analyst guidance (auto-loaded into your AI CLI)
+├── CLAUDE.md                 # Claude Code entry point — re-exports AGENTS.md
 ├── DEVELOPING.md             # dev overlay (not auto-loaded)
+├── OPTIONS.md                # options-analysis methodology (loaded when options are in scope)
+├── RISK.md                   # trade-preparation methodology (loaded when sizing / stops are in scope)
+├── PROVIDER_TODO.md          # punch list of planned provider additions
 ├── README.md                 # this file
 ├── Dockerfile                # single image for the unified server
 ├── docker-compose.yml        # one service, one port
 ├── pyproject.toml            # installable package
 ├── src/traider/
-│   ├── server.py             # FastMCP server + provider loader
-│   ├── settings.py           # TraiderSettings, TRAIDER_PROVIDERS parsing
 │   └── providers/
 │       ├── schwab/           # Schwab Trader API + auth
 │       ├── yahoo/            # Yahoo Finance (via yfinance)
