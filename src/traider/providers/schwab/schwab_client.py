@@ -411,6 +411,72 @@ class SchwabClient:
             f"/trader/v1/accounts/{account_hash}/transactions/{transaction_id}"
         )
 
+    def get_orders(
+        self,
+        account_hash: str,
+        from_entered_time: str,
+        to_entered_time: str,
+        max_results: int | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Orders for one account from
+        ``/trader/v1/accounts/{hash}/orders``.
+
+        Returns every order entered in the window regardless of final
+        state (WORKING, FILLED, CANCELED, REPLACED, ...). Filter with
+        ``status`` to narrow (e.g. ``"WORKING"`` for open/resting
+        orders). Schwab caps ``from_entered_time`` at ~60 days ago.
+
+        Args:
+            account_hash: Hashed account ID (from
+                :meth:`get_account_numbers`).
+            from_entered_time: Lower bound on ``enteredTime``.
+                ``YYYY-MM-DD`` (expanded to ``00:00:00.000Z``) or full
+                ISO-8601 UTC datetime.
+            to_entered_time: Upper bound on ``enteredTime``.
+                ``YYYY-MM-DD`` (expanded to ``23:59:59.999Z``) or full
+                ISO-8601 UTC datetime.
+            max_results: Server-side cap on rows returned (Schwab
+                default 3000).
+            status: Optional status filter. Schwab's vocabulary:
+                ``AWAITING_PARENT_ORDER``, ``AWAITING_CONDITION``,
+                ``AWAITING_STOP_CONDITION``, ``AWAITING_MANUAL_REVIEW``,
+                ``ACCEPTED``, ``AWAITING_UR_OUT``,
+                ``PENDING_ACTIVATION``, ``QUEUED``, ``WORKING``,
+                ``REJECTED``, ``PENDING_CANCEL``, ``CANCELED``,
+                ``PENDING_REPLACE``, ``REPLACED``, ``FILLED``,
+                ``EXPIRED``, ``NEW``, ``AWAITING_RELEASE_TIME``,
+                ``PENDING_ACKNOWLEDGEMENT``, ``PENDING_RECALL``,
+                ``UNKNOWN``.
+        """
+        params: dict[str, Any] = {
+            "fromEnteredTime": _normalize_iso_datetime(
+                from_entered_time, end_of_day=False
+            ),
+            "toEnteredTime": _normalize_iso_datetime(
+                to_entered_time, end_of_day=True
+            ),
+        }
+        if max_results is not None:
+            params["maxResults"] = max_results
+        if status is not None:
+            params["status"] = status
+        data = self._get_json(
+            f"/trader/v1/accounts/{account_hash}/orders", params=params
+        )
+        return data if isinstance(data, list) else []
+
+    def get_order(
+        self,
+        account_hash: str,
+        order_id: str | int,
+    ) -> dict[str, Any]:
+        """Single order by ID from
+        ``/trader/v1/accounts/{hash}/orders/{orderId}``."""
+        return self._get_json(
+            f"/trader/v1/accounts/{account_hash}/orders/{order_id}"
+        )
+
     def close(self) -> None:
         self._http.close()
 

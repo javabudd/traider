@@ -7,6 +7,7 @@ Yahoo cannot serve.
 from __future__ import annotations
 
 import atexit
+import datetime as _dt
 import logging
 from typing import Any
 
@@ -644,6 +645,19 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             f"available hashValues: {hashes}"
         )
 
+    def _resolve_order_window(
+        from_entered_time: str | None,
+        to_entered_time: str | None,
+    ) -> tuple[str, str]:
+        now = _dt.datetime.now(_dt.UTC)
+        resolved_from = from_entered_time or (
+            now - _dt.timedelta(days=60)
+        ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        resolved_to = to_entered_time or now.strftime(
+            "%Y-%m-%dT%H:%M:%S.999Z"
+        )
+        return resolved_from, resolved_to
+
     @mcp.tool()
     def get_transactions(
         start_date: str,
@@ -736,6 +750,108 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             return _get_client().get_transaction(resolved, transaction_id)
         except Exception:
             logger.exception("get_transaction failed id=%s", transaction_id)
+            raise
+
+    @mcp.tool()
+    def get_orders(
+        from_entered_time: str | None = None,
+        to_entered_time: str | None = None,
+        status: str | None = None,
+        max_results: int | None = None,
+        account_hash: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Orders for one account, filterable by status (read-only).
+
+        Returns raw Schwab order records — every order entered in the
+        window, regardless of outcome (WORKING, FILLED, CANCELED,
+        REPLACED, ...). Use ``status="WORKING"`` for resting /
+        open orders; pair with ``get_transactions`` for post-fill
+        detail (commissions, per-leg costs), since a WORKING order
+        has no fill price yet.
+
+        Args:
+            from_entered_time: Lower bound on the order's
+                ``enteredTime``. ``YYYY-MM-DD`` (start of day UTC) or
+                full ISO-8601 UTC datetime. Defaults to 60 days ago —
+                Schwab caps the lookback at ~60 days, so this covers
+                the entire available window.
+            to_entered_time: Upper bound on ``enteredTime``.
+                ``YYYY-MM-DD`` (end of day UTC) or full ISO-8601 UTC
+                datetime. Defaults to now.
+            status: Filter to one status. Open/resting buckets:
+                ``WORKING``, ``PENDING_ACTIVATION``, ``QUEUED``,
+                ``ACCEPTED``, ``AWAITING_PARENT_ORDER``,
+                ``AWAITING_CONDITION``, ``AWAITING_STOP_CONDITION``,
+                ``AWAITING_MANUAL_REVIEW``, ``AWAITING_UR_OUT``,
+                ``AWAITING_RELEASE_TIME``, ``PENDING_ACKNOWLEDGEMENT``.
+                Terminal: ``FILLED``, ``CANCELED``, ``REJECTED``,
+                ``EXPIRED``, ``REPLACED``. Transition:
+                ``PENDING_CANCEL``, ``PENDING_REPLACE``,
+                ``PENDING_RECALL``. Also ``NEW`` and ``UNKNOWN``.
+                Omit to return all statuses in the window.
+            max_results: Server-side row cap (Schwab default 3000).
+            account_hash: Hashed account ID from
+                ``get_account_numbers``. If ``None`` and exactly one
+                account is authorized, it is resolved automatically;
+                otherwise the tool raises with the available hashes.
+
+        Each record carries ``orderId``, ``status``, ``enteredTime``,
+        ``closeTime``, ``orderType`` (e.g. ``LIMIT`` / ``MARKET`` /
+        ``STOP``), ``duration`` (``DAY`` / ``GOOD_TILL_CANCEL`` / ...),
+        ``price`` / ``stopPrice``, ``quantity`` / ``filledQuantity`` /
+        ``remainingQuantity``, ``cancelable`` / ``editable``, and
+        ``orderLegCollection`` (per-leg ``instruction`` like
+        ``BUY_TO_OPEN`` / ``SELL_TO_CLOSE``, ``positionEffect``, and
+        the ``instrument`` block with symbol / OSI). Multi-leg and
+        conditional (OCO / trigger) orders nest children under
+        ``childOrderStrategies`` — walk that array to see every leg.
+        """
+        logger.info(
+            "get_orders from=%s to=%s status=%s max=%s account=%s",
+            from_entered_time, to_entered_time, status, max_results,
+            "<auto>" if account_hash is None else "<explicit>",
+        )
+        try:
+            resolved_from, resolved_to = _resolve_order_window(
+                from_entered_time, to_entered_time
+            )
+            resolved_hash = _resolve_account_hash(account_hash)
+            result = _get_client().get_orders(
+                account_hash=resolved_hash,
+                from_entered_time=resolved_from,
+                to_entered_time=resolved_to,
+                max_results=max_results,
+                status=status,
+            )
+        except Exception:
+            logger.exception("get_orders failed")
+            raise
+        logger.info("get_orders result count=%d", len(result))
+        return result
+
+    @mcp.tool()
+    def get_order(
+        order_id: str,
+        account_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Single order by ID (read-only).
+
+        Args:
+            order_id: Schwab order ID — the ``orderId`` field on a
+                record returned by ``get_orders``.
+            account_hash: Same rules as ``get_orders`` — optional when
+                exactly one account is authorized.
+        """
+        logger.info(
+            "get_order id=%s account=%s",
+            order_id,
+            "<auto>" if account_hash is None else "<explicit>",
+        )
+        try:
+            resolved = _resolve_account_hash(account_hash)
+            return _get_client().get_order(resolved, order_id)
+        except Exception:
+            logger.exception("get_order failed id=%s", order_id)
             raise
 
     @mcp.tool()

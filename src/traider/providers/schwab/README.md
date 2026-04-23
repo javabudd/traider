@@ -242,7 +242,8 @@ and defaults to today.
 
 All authorized accounts. With `include_positions=True`, each account
 includes its `positions` array — quantity, cost basis, market value,
-and unrealized P&L per holding. Read-only; no order data.
+and unrealized P&L per holding. Read-only; for open / working orders
+use `get_orders`.
 
 ### `get_account_numbers()`
 
@@ -288,6 +289,47 @@ narrow the window if the API errors on a long range.
 Single transaction by ID — the `activityId` field on a record
 returned by `get_transactions`. `account_hash` auto-resolves under
 the same rules as `get_transactions`.
+
+### `get_orders(from_entered_time=None, to_entered_time=None, status=None, max_results=None, account_hash=None)`
+
+Orders for one account, filterable by status. Use this to see
+working / resting orders (pass `status="WORKING"`), audit recent
+cancellations, or trace an order's lifecycle before looking up its
+fills in `get_transactions`. Schwab caps `from_entered_time` at
+~60 days ago; both date args default to "last 60 days" so the common
+"what's open right now?" question is `get_orders(status="WORKING")`.
+
+- `from_entered_time` / `to_entered_time` — `YYYY-MM-DD` (expanded to
+  start / end of day UTC) or full ISO-8601 UTC datetime. Both
+  optional; defaults cover the full 60-day window Schwab allows.
+- `status` — one of Schwab's order statuses. Open/resting buckets:
+  `WORKING`, `PENDING_ACTIVATION`, `QUEUED`, `ACCEPTED`,
+  `AWAITING_PARENT_ORDER`, `AWAITING_CONDITION`,
+  `AWAITING_STOP_CONDITION`, `AWAITING_MANUAL_REVIEW`,
+  `AWAITING_UR_OUT`, `AWAITING_RELEASE_TIME`,
+  `PENDING_ACKNOWLEDGEMENT`. Terminal: `FILLED`, `CANCELED`,
+  `REJECTED`, `EXPIRED`, `REPLACED`. Transition: `PENDING_CANCEL`,
+  `PENDING_REPLACE`, `PENDING_RECALL`. Also `NEW`, `UNKNOWN`. Omit
+  to return all.
+- `max_results` — server-side row cap (Schwab default 3000).
+- `account_hash` — auto-resolves under the same rules as
+  `get_transactions`.
+
+Each record carries `orderId`, `status`, `enteredTime`, `closeTime`,
+`orderType` (`LIMIT` / `MARKET` / `STOP` / `STOP_LIMIT` / `TRAILING_STOP` / ...),
+`duration` (`DAY` / `GOOD_TILL_CANCEL` / ...), `price` / `stopPrice`,
+`quantity` / `filledQuantity` / `remainingQuantity`, `cancelable` /
+`editable`, and `orderLegCollection` (per-leg `instruction` like
+`BUY_TO_OPEN` / `SELL_TO_CLOSE`, `positionEffect`, and the
+`instrument` block with symbol / OSI). Multi-leg and conditional
+(OCO / trigger) orders nest their children under
+`childOrderStrategies` — walk that array to see every leg.
+
+### `get_order(order_id, account_hash=None)`
+
+Single order by ID — the `orderId` field on a record returned by
+`get_orders`. `account_hash` auto-resolves under the same rules as
+`get_orders`.
 
 ### `analyze_returns(symbol, ...)`
 
@@ -382,6 +424,13 @@ most of these examples intentionally pull from several at once.
 - "For each position, check whether the underlying's realized-vol
   regime is elevated or extreme — I want to know where risk has
   picked up."
+
+### Working / open orders
+
+- "What orders do I have working right now?"
+- "Did my TSLA limit from this morning fill or is it still resting?"
+- "Show me every order I canceled in the last week and why it's
+  missing a fill."
 
 ### Trade history / realized P&L
 

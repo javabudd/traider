@@ -385,9 +385,25 @@ without (a) Office installed and (b) a plan to use
   plaintext `accountNumber`; every other `/trader/v1/accounts/{X}`
   endpoint expects the `hashValue` from
   `/trader/v1/accounts/accountNumbers`. `get_account_numbers` is the
-  discovery tool. The `get_transactions` tool auto-resolves when
-  exactly one account is authorized, so single-account users can skip
-  the lookup; multi-account users must pass `account_hash` explicitly.
+  discovery tool. The `get_transactions` / `get_orders` tools
+  auto-resolve when exactly one account is authorized, so
+  single-account users can skip the lookup; multi-account users must
+  pass `account_hash` explicitly.
+- **Orders endpoint lookback is ~60 days.** Unlike transactions
+  (~1 year), `/trader/v1/accounts/{hash}/orders` rejects a
+  `fromEnteredTime` older than 60 days. The `get_orders` tool
+  defaults both date params to "last 60 days" on purpose — don't
+  widen that default without also handling the upstream 400. Same
+  ISO-8601-with-milliseconds format as the transactions endpoint;
+  `_normalize_iso_datetime()` is reused.
+- **Multi-leg / conditional orders nest under `childOrderStrategies`.**
+  A single order record's top-level `orderLegCollection` holds the
+  primary legs, but OCO groups and trigger (first-triggers-next)
+  orders hang the other legs under `childOrderStrategies` as full
+  order sub-objects (each with its own `orderId`, `status`,
+  `orderLegCollection`). Flattening to "legs on this order" has to
+  walk that array recursively — don't read `orderLegCollection`
+  alone.
 - **TA-Lib is a C dep.** Use conda-forge (`ta-lib`) or the distro
   package; the pip wrapper needs the native library present first. If
   the wrapper imports but returns garbage, check the C lib version
