@@ -321,25 +321,29 @@ without (a) Office installed and (b) a plan to use
   of those are off, every Greek and theoretical value in the response
   is off too. Don't set them just to round-trip — leave them `None`
   unless the user is explicitly asking for a re-priced chain.
-- **Market hours.** REST quote fields split into two anchor points
-  by semantic: regular-session-anchored (`closePrice` = **prior**
-  day's close; `netChange` / `netPercentChange` = Δ from prior
-  close to `lastPrice`) vs. today's-close-anchored
-  (`postMarketChange` / `postMarketPercentChange` = Δ from today's
-  4PM to current mark). `mark` is the bid-ask mid; `lastPrice`
-  *can* include AH TRF prints (`lastMICId` = `XADF`) but isn't
-  guaranteed to. **Mental model: REST = snapshot, Streamer =
-  stream.** Schwab does NOT guarantee that any REST quote field
-  updates continuously post-4PM, and empirically the
-  `/marketdata/v1/quotes` snapshot often pins near the close
-  across all fields — including `mark`, `postMarketChange`,
-  `tradeTime`, `quoteTime` — until the next session. Live AH data
-  is a Streamer (`LEVELONE_EQUITIES` websocket) product, not
-  REST; if reliable live AH matters for a use case, the provider
-  needs a streamer-backed path. The `fields` whitelist on
-  `get_quotes` is strict — a narrow list silently drops the AH-
-  anchored keys, so the `get_quote` / `get_quotes` docstrings name
-  them explicitly; preserve that when refactoring.
+- **Market hours — REST `/quotes` is RTH-anchored by design.**
+  Per the Schwab Streamer docs, `LEVELONE_EQUITIES` splits
+  last-price into Field 3 `Last Price` (all trades) and Field 29
+  `Regular Market Last Price` ("Only records regular trade").
+  The REST `/marketdata/v1/quotes` response mirrors Field-29
+  semantics: `lastPrice`, `netChange`, `mark`, `postMarketChange`,
+  `tradeTime`, `quoteTime` all pin at the 4PM regular-session
+  close and don't advance during pre/post/overnight. Not a cache
+  bug — the endpoint's spec. **For live extended-hours data use
+  `/pricehistory` with `needExtendedHoursData=true`**: it returns
+  real minute bars with volume from 07:00 ET through the 20:00 ET
+  post-market close. The 20:00–07:00 ET **overnight 24/5 session
+  is not covered by any Schwab REST endpoint** — passing a start
+  date inside that window returns the same standard-session
+  dataset. The Streamer API docs don't commit to overnight
+  coverage for `LEVELONE_EQUITIES` either (it's the only
+  LEVELONE service without explicit "Update Regular / AM-PM"
+  columns, and "overnight" / "24/5" appears nowhere in the
+  Streamer spec). Overnight visibility for QQQ/SPY/etc. is
+  currently a ToS-only surface. The `fields` whitelist on
+  `get_quotes` is strict — a narrow list silently drops the
+  AH-delta keys, so the `get_quote` / `get_quotes` docstrings
+  name them explicitly; preserve that when refactoring.
 - **Sandbox vs production.** If you set `SCHWAB_BASE_URL`, make sure
   it points where you intend.
 - **Price history parameter combos.** Schwab's `/pricehistory`

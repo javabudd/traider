@@ -73,24 +73,32 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
 
         **Field semantics.** ``closePrice`` is the **prior** session's
         close, not today's 4PM. ``netChange`` / ``netPercentChange``
-        are anchored on the regular session (Δ from prior close to
-        ``lastPrice``). ``postMarketChange`` /
+        are anchored on the regular session. ``postMarketChange`` /
         ``postMarketPercentChange`` are anchored on today's RTH close
-        (Δ from today's 4PM to the current mark). ``mark`` is the
-        bid-ask midpoint. ``lastPrice`` *can* include AH TRF prints
-        (``lastMICId`` = ``XADF``) but isn't guaranteed to.
+        (Δ from today's 4PM to ``PostMarketLastPrice``). ``mark`` is
+        the bid-ask midpoint.
 
-        **Mental model: REST = snapshot, Streamer = stream.**
-        Schwab does not document that any REST quote field updates
-        continuously in extended hours, and empirically the
-        ``/marketdata/v1/quotes`` snapshot often pins near the 4PM
-        close across ALL fields — including ``mark``,
-        ``postMarketChange``, ``tradeTime``, ``quoteTime`` — until
-        the next session. Live AH ticks are served by the Schwab
-        **Streamer** (``LEVELONE_EQUITIES`` websocket), not REST.
-        Treat REST quotes as best-effort in extended hours; if a
-        call returns stale AH values, don't retry in a loop — the
-        REST path may simply not advance until the open.
+        **REST /quotes is RTH-anchored BY DESIGN.** Schwab's Streamer
+        docs expose two distinct last-price fields on
+        ``LEVELONE_EQUITIES``: Field 3 ``Last Price`` (all trades)
+        and Field 29 ``Regular Market Last Price`` ("Only records
+        regular trade"). The REST ``/marketdata/v1/quotes`` response
+        mirrors Field-29 semantics — ``lastPrice``, ``netChange``,
+        ``tradeTime``, ``quoteTime`` all pin at the 4PM regular-
+        session close and do not advance during pre-market, post-
+        market, or overnight sessions. This is the endpoint's spec,
+        not a cache or staleness bug. Don't retry a stale-looking
+        AH quote — the next RTH open is when these fields move.
+
+        **For live extended-hours data, use ``get_price_history``
+        with ``need_extended_hours_data=True``** and read the last
+        candle. That endpoint serves pre-market + regular + post-
+        market minute bars (07:00–20:00 ET) with real volume and
+        price discovery. For the 20:00–07:00 ET overnight 24/5
+        session, no Schwab REST endpoint delivers ticks; the
+        Streamer docs don't commit to overnight coverage either
+        (and 24/5 is not referenced anywhere in the Streamer API
+        spec). Overnight visibility currently requires ToS.
         """
         logger.info("get_quote symbol=%s field=%s", symbol, field)
         try:
@@ -113,21 +121,22 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
 
         **``fields`` is a strict whitelist — keys you don't list are
         dropped from the response.** A narrow list like
-        ``["lastPrice", "netChange"]`` will silently omit the AH-
-        anchored keys (``postMarketChange``, ``mark``, etc.). To
-        inspect post-market movement, either omit ``fields`` (get
-        the full quote object) or include the AH-anchored keys
+        ``["lastPrice", "netChange"]`` will silently omit AH-delta
+        keys (``postMarketChange`` et al.). Either omit ``fields``
+        to get the full quote object, or include the AH keys
         explicitly: ``postMarketChange``, ``postMarketPercentChange``,
-        ``mark``, ``markChange``, ``markPercentChange``, ``tradeTime``,
-        ``quoteTime``.
+        ``mark``, ``markChange``, ``markPercentChange``.
 
-        **REST = snapshot, Streamer = stream.** See ``get_quote``
-        for field semantics and the update-cadence caveat: the AH-
-        anchored keys exist in the REST response, but Schwab does
-        not guarantee they update post-4PM, and empirically they
-        often pin at the close across ALL fields until the next
-        session. Live AH ticks live on the Schwab Streamer
-        (``LEVELONE_EQUITIES`` websocket), not REST.
+        **REST /quotes is RTH-anchored BY DESIGN — it does not
+        serve live extended-hours prices.** Per Schwab's Streamer
+        docs, ``LEVELONE_EQUITIES`` Field 29 ``Regular Market Last
+        Price`` ("Only records regular trade") is the semantic
+        mirrored here. Every field — ``lastPrice``, ``mark``,
+        ``postMarketChange``, ``quoteTime``, ``tradeTime`` — pins
+        at the 4PM close until the next RTH session. For live AH
+        data use ``get_price_history`` with
+        ``need_extended_hours_data=True`` (covers 07:00–20:00 ET);
+        no Schwab REST path covers 20:00–07:00 ET overnight.
         """
         logger.info("get_quotes symbols=%s fields=%s", symbols, fields)
         try:
@@ -176,9 +185,23 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 ``end_date``), overrides ``period``.
             end_date: Optional epoch ms. Defaults to now when only
                 ``start_date`` is given.
-            need_extended_hours_data: Include pre/post-market candles.
+            need_extended_hours_data: Include pre/post-market candles
+                (07:00–09:30 ET + 16:00–20:00 ET). Does **not** cover
+                the 20:00–07:00 ET overnight 24/5 session — Schwab
+                clips `start_date` / `end_date` inside that window and
+                returns the standard-session dataset. For QQQ / SPY /
+                etc. in the 24/5 eligible set, overnight ticks are
+                only on ToS.
             need_previous_close: Include the prior session's close in the
                 response.
+
+        **This is the reliable path for live post-market prices.**
+        Unlike ``/marketdata/v1/quotes`` (which is RTH-anchored by
+        design and pins at the 4PM close), ``/pricehistory`` with
+        ``need_extended_hours_data=True`` returns real minute bars
+        through the 20:00 ET post-market close with actual trade
+        volume. Read the last candle's ``close`` for a live-ish AH
+        quote (~30s behind wall clock).
         """
         logger.info(
             "get_price_history symbol=%s period=%s%s frequency=%s%s",
