@@ -80,9 +80,9 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         bid-ask midpoint. ``lastPrice`` *can* include AH TRF prints
         (``lastMICId`` = ``XADF``) but isn't guaranteed to.
 
-        **Update cadence is NOT guaranteed post-4PM.** Schwab does
-        not document that any REST quote field updates continuously
-        in extended hours, and empirically the
+        **Mental model: REST = snapshot, Streamer = stream.**
+        Schwab does not document that any REST quote field updates
+        continuously in extended hours, and empirically the
         ``/marketdata/v1/quotes`` snapshot often pins near the 4PM
         close across ALL fields — including ``mark``,
         ``postMarketChange``, ``tradeTime``, ``quoteTime`` — until
@@ -121,13 +121,13 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         ``mark``, ``markChange``, ``markPercentChange``, ``tradeTime``,
         ``quoteTime``.
 
-        **REST quotes are best-effort in extended hours.** See
-        ``get_quote`` for field semantics and the update-cadence
-        caveat: the AH-anchored keys exist in the REST response, but
-        Schwab does not guarantee they update post-4PM, and
-        empirically they often pin at the close across ALL fields
-        until the next session. Live AH ticks live on the Schwab
-        Streamer (``LEVELONE_EQUITIES`` websocket), not REST.
+        **REST = snapshot, Streamer = stream.** See ``get_quote``
+        for field semantics and the update-cadence caveat: the AH-
+        anchored keys exist in the REST response, but Schwab does
+        not guarantee they update post-4PM, and empirically they
+        often pin at the close across ALL fields until the next
+        session. Live AH ticks live on the Schwab Streamer
+        (``LEVELONE_EQUITIES`` websocket), not REST.
         """
         logger.info("get_quotes symbols=%s fields=%s", symbols, fields)
         try:

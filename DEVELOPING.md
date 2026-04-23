@@ -328,12 +328,13 @@ without (a) Office installed and (b) a plan to use
   (`postMarketChange` / `postMarketPercentChange` = Δ from today's
   4PM to current mark). `mark` is the bid-ask mid; `lastPrice`
   *can* include AH TRF prints (`lastMICId` = `XADF`) but isn't
-  guaranteed to. **Schwab does NOT guarantee that any REST quote
-  field updates continuously post-4PM**, and empirically the
+  guaranteed to. **Mental model: REST = snapshot, Streamer =
+  stream.** Schwab does NOT guarantee that any REST quote field
+  updates continuously post-4PM, and empirically the
   `/marketdata/v1/quotes` snapshot often pins near the close
   across all fields — including `mark`, `postMarketChange`,
   `tradeTime`, `quoteTime` — until the next session. Live AH data
-  is a **Streamer** (`LEVELONE_EQUITIES` websocket) product, not
+  is a Streamer (`LEVELONE_EQUITIES` websocket) product, not
   REST; if reliable live AH matters for a use case, the provider
   needs a streamer-backed path. The `fields` whitelist on
   `get_quotes` is strict — a narrow list silently drops the AH-
