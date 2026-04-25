@@ -23,11 +23,19 @@ loaded into your AI CLI's context. Internals for modifying the code
 
 ## Available providers
 
-One env var, `TRAIDER_PROVIDERS`, controls the exposed tool surface:
+One env var, `TRAIDER_PROVIDERS`, controls the exposed tool surface.
+Out of the box, traider ships with the no-credentials set enabled —
+useful market data, macro, factors, Treasury, and CFTC positioning
+without any signups:
 
 ```
-TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
+TRAIDER_PROVIDERS=yahoo,fed-calendar,factor,treasury,cftc
 ```
+
+Add API-key providers (`fred`, `sec-edgar`, `news`, `earnings`,
+`estimates`, `eia`) as you obtain credentials, or swap `yahoo` for
+`schwab` if you want real brokerage data and Schwab's market-data
+entitlement.
 
 | Provider       | Tool group                        | Creds required                  |
 |----------------|-----------------------------------|---------------------------------|
@@ -61,8 +69,10 @@ actual work.
 
 `schwab` and `yahoo` expose the **same tool names** (`get_quote`,
 `get_price_history`, `run_technical_analysis`, `analyze_*`, …) so
-prompts are portable. They differ only in where the data comes from
-and what's not available:
+prompts are portable. `yahoo` is the default because it works with
+no signup; `schwab` is the upgrade path for real brokerage data and
+real-time market-data entitlement. They differ only in where the
+data comes from and what's not available:
 
 |                              | `schwab`                                    | `yahoo`                                      |
 |------------------------------|---------------------------------------------|----------------------------------------------|
@@ -91,12 +101,21 @@ Copy the template and edit:
 cp .env.dist .env
 ```
 
-Set `TRAIDER_PROVIDERS` to the providers you want (see [Available
-providers](#available-providers) above), plus credentials for the
-ones that need them:
+`.env.dist` ships with the no-credentials default, so an unedited
+`.env` will start a working server (Yahoo quotes, FOMC calendar, Ken
+French factors, Treasury auctions, CFTC positioning):
 
 ```
-TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar
+TRAIDER_PROVIDERS=yahoo,fed-calendar,factor,treasury,cftc
+```
+
+To add API-key providers, append their names to `TRAIDER_PROVIDERS`
+and fill in the matching credentials. For example, to add FRED macro
+data, SEC EDGAR filings, and switch the market-data backend to
+Schwab:
+
+```
+TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,cftc
 
 # schwab provider only.
 SCHWAB_APP_KEY=...
@@ -110,9 +129,9 @@ FRED_API_KEY=...
 SEC_EDGAR_USER_AGENT=your-name you@example.com
 ```
 
-The `yahoo`, `fed-calendar`, `factor`, and `treasury` providers need no
-credentials. Never commit `.env` or paste its contents into logs or
-chat.
+See [Available providers](#available-providers) above for the full
+list and the env var each one needs. Never commit `.env` or paste
+its contents into logs or chat.
 
 ### 2. Run the server
 
