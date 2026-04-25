@@ -9,6 +9,7 @@ from __future__ import annotations
 import atexit
 import datetime as _dt
 import logging
+import sys
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -17,7 +18,7 @@ from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from . import analytics
 from .options_summary import summarize_chain
-from .schwab_client import SCHWAB_API_BASE, SchwabClient
+from .schwab_client import SCHWAB_API_BASE, SchwabAuthError, SchwabClient
 from .ta import run_indicators
 
 
@@ -40,6 +41,21 @@ def _get_client() -> SchwabClient:
 
 def _now_iso() -> str:
     return _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds")
+
+
+def _log_tool_error(msg: str, *args: Any) -> None:
+    """Call from inside an ``except`` block to log the active exception.
+
+    ``SchwabAuthError`` collapses to a one-line WARNING because the only
+    fix is re-running ``traider auth schwab`` on a ~7-day cadence — the
+    full traceback is just log noise. Anything else still gets the full
+    ``logger.exception`` stack so real bugs stay debuggable.
+    """
+    exc = sys.exc_info()[1]
+    if isinstance(exc, SchwabAuthError):
+        logger.warning("%s: %s", msg % args if args else msg, exc)
+    else:
+        logger.exception(msg, *args)
 
 
 def _fetch_candles(
@@ -139,7 +155,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         try:
             value = _get_client().get_quote(symbol, field)
         except Exception:
-            logger.exception("get_quote failed symbol=%s field=%s", symbol, field)
+            _log_tool_error("get_quote failed symbol=%s field=%s", symbol, field)
             raise
         logger.info("get_quote result symbol=%s field=%s value=%r", symbol, field, value)
         return {
@@ -197,7 +213,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         try:
             results = _get_client().get_quotes(symbols, fields)
         except Exception:
-            logger.exception("get_quotes failed symbols=%s fields=%s", symbols, fields)
+            _log_tool_error("get_quotes failed symbols=%s fields=%s", symbols, fields)
             raise
         logger.info("get_quotes result=%r", results)
         return {
@@ -280,7 +296,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 need_previous_close=need_previous_close,
             )
         except Exception:
-            logger.exception("get_price_history failed symbol=%s", symbol)
+            _log_tool_error("get_price_history failed symbol=%s", symbol)
             raise
         candles = result.get("candles", [])
         logger.info(
@@ -358,7 +374,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             candles = history.get("candles", [])
             result = run_indicators(candles, indicators, tail=tail)
         except Exception:
-            logger.exception("run_technical_analysis failed symbol=%s", symbol)
+            _log_tool_error("run_technical_analysis failed symbol=%s", symbol)
             raise
         logger.info(
             "run_technical_analysis result symbol=%s candles=%d labels=%s",
@@ -442,7 +458,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 option_type=option_type,
             )
         except Exception:
-            logger.exception("get_option_chain failed symbol=%s", symbol)
+            _log_tool_error("get_option_chain failed symbol=%s", symbol)
             raise
         return {
             "source": _src("/marketdata/v1/chains"),
@@ -502,7 +518,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             )
             summary = summarize_chain(chain, wings=wings, top_n=top_n)
         except Exception:
-            logger.exception("analyze_option_chain failed symbol=%s", symbol)
+            _log_tool_error("analyze_option_chain failed symbol=%s", symbol)
             raise
         summary["source"] = _src("/marketdata/v1/chains")
         summary["fetched_at"] = fetched_at
@@ -522,7 +538,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         try:
             result = _get_client().get_option_expirations(symbol)
         except Exception:
-            logger.exception("get_option_expirations failed symbol=%s", symbol)
+            _log_tool_error("get_option_expirations failed symbol=%s", symbol)
             raise
         return {
             "source": _src("/marketdata/v1/expirationchain"),
@@ -552,7 +568,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         try:
             result = _get_client().get_movers(index, sort=sort, frequency=frequency)
         except Exception:
-            logger.exception("get_movers failed index=%s", index)
+            _log_tool_error("get_movers failed index=%s", index)
             raise
         return {
             "source": _src(f"/marketdata/v1/movers/{index}"),
@@ -580,7 +596,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         try:
             result = _get_client().search_instruments(symbol, projection=projection)
         except Exception:
-            logger.exception("search_instruments failed symbol=%s", symbol)
+            _log_tool_error("search_instruments failed symbol=%s", symbol)
             raise
         return {
             "source": _src("/marketdata/v1/instruments"),
@@ -605,7 +621,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         try:
             result = _get_client().get_market_hours(markets, date=date)
         except Exception:
-            logger.exception("get_market_hours failed markets=%s", markets)
+            _log_tool_error("get_market_hours failed markets=%s", markets)
             raise
         return {
             "source": _src("/marketdata/v1/markets"),
@@ -669,7 +685,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         try:
             accounts = _get_client().get_accounts(include_positions=include_positions)
         except Exception:
-            logger.exception("get_accounts failed")
+            _log_tool_error("get_accounts failed")
             raise
         logger.info("get_accounts result count=%d", len(accounts))
         return {
@@ -696,7 +712,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         try:
             accounts = _get_client().get_account_numbers()
         except Exception:
-            logger.exception("get_account_numbers failed")
+            _log_tool_error("get_account_numbers failed")
             raise
         logger.info("get_account_numbers result count=%d", len(accounts))
         return {
@@ -803,7 +819,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 types=types,
             )
         except Exception:
-            logger.exception("get_transactions failed")
+            _log_tool_error("get_transactions failed")
             raise
         logger.info("get_transactions result count=%d", len(transactions))
         return {
@@ -837,7 +853,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             resolved = _resolve_account_hash(account_hash)
             transaction = _get_client().get_transaction(resolved, transaction_id)
         except Exception:
-            logger.exception("get_transaction failed id=%s", transaction_id)
+            _log_tool_error("get_transaction failed id=%s", transaction_id)
             raise
         return {
             "source": _src(
@@ -922,7 +938,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 status=status,
             )
         except Exception:
-            logger.exception("get_orders failed")
+            _log_tool_error("get_orders failed")
             raise
         logger.info("get_orders result count=%d", len(orders))
         return {
@@ -955,7 +971,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             resolved = _resolve_account_hash(account_hash)
             order = _get_client().get_order(resolved, order_id)
         except Exception:
-            logger.exception("get_order failed id=%s", order_id)
+            _log_tool_error("get_order failed id=%s", order_id)
             raise
         return {
             "source": _src(f"/trader/v1/accounts/{resolved}/orders/{order_id}"),
@@ -995,7 +1011,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 candles, risk_free_rate=risk_free_rate, annualization=annualization,
             )
         except Exception:
-            logger.exception("analyze_returns failed symbol=%s", symbol)
+            _log_tool_error("analyze_returns failed symbol=%s", symbol)
             raise
         return {
             "source": _src("/marketdata/v1/pricehistory"),
@@ -1031,7 +1047,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             }
             result = analytics.correlation_matrix(candles_by_symbol)
         except Exception:
-            logger.exception("analyze_correlation failed symbols=%s", symbols)
+            _log_tool_error("analyze_correlation failed symbols=%s", symbols)
             raise
         return {
             "source": _src("/marketdata/v1/pricehistory"),
@@ -1067,7 +1083,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             )
             result = analytics.beta(a, b, annualization=annualization)
         except Exception:
-            logger.exception("analyze_beta failed symbol=%s vs %s", symbol, benchmark)
+            _log_tool_error("analyze_beta failed symbol=%s vs %s", symbol, benchmark)
             raise
         return {
             "source": _src("/marketdata/v1/pricehistory"),
@@ -1114,7 +1130,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 annualization=annualization,
             )
         except Exception:
-            logger.exception("analyze_volatility_regime failed symbol=%s", symbol)
+            _log_tool_error("analyze_volatility_regime failed symbol=%s", symbol)
             raise
         return {
             "source": _src("/marketdata/v1/pricehistory"),
@@ -1153,7 +1169,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             )
             result = analytics.rolling_zscore(candles, window=window, source=source)
         except Exception:
-            logger.exception("analyze_zscore failed symbol=%s", symbol)
+            _log_tool_error("analyze_zscore failed symbol=%s", symbol)
             raise
         if tail is not None and tail > 0 and "zscore" in result:
             result["datetime"] = result["datetime"][-tail:]
@@ -1205,7 +1221,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 a, b, hedge_ratio=hedge_ratio, zscore_window=zscore_window,
             )
         except Exception:
-            logger.exception("analyze_pair_spread failed %s/%s", symbol_a, symbol_b)
+            _log_tool_error("analyze_pair_spread failed %s/%s", symbol_a, symbol_b)
             raise
         if tail is not None and tail > 0 and "spread" in result:
             result["datetime"] = result["datetime"][-tail:]
@@ -1316,7 +1332,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 tight_multiplier=tight_multiplier,
             )
         except Exception:
-            logger.exception("analyze_session_ranges failed symbol=%s", symbol)
+            _log_tool_error("analyze_session_ranges failed symbol=%s", symbol)
             raise
         if tail is not None and tail > 0 and "days" in result:
             result["days"] = result["days"][-tail:]
