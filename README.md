@@ -21,44 +21,7 @@ loaded into your AI CLI's context. Internals for modifying the code
 (how providers load, how to add a provider) live in
 [DEVELOPING.md](DEVELOPING.md) and are intentionally not auto-loaded.
 
-## Layout
-
-```
-traider/
-├── AGENTS.md                 # analyst guidance (auto-loaded into your AI CLI)
-├── CLAUDE.md                 # Claude Code entry point — re-exports AGENTS.md
-├── DEVELOPING.md             # dev overlay (not auto-loaded)
-├── OPTIONS.md                # options-analysis methodology (loaded when options are in scope)
-├── RISK.md                   # trade-preparation methodology (loaded when sizing / stops are in scope)
-├── todo/PROVIDERS.md         # punch list of planned provider additions
-├── README.md                 # this file
-├── Dockerfile                # single image for the unified server
-├── docker-compose.yml        # one service, one port
-├── pyproject.toml            # installable package
-├── src/traider/
-│   └── providers/
-│       ├── schwab/           # Schwab Trader API + auth
-│       ├── yahoo/            # Yahoo Finance (via yfinance)
-│       ├── fred/             # FRED macro data / release calendar
-│       ├── fed_calendar/     # FOMC meeting calendar (primary source)
-│       ├── sec_edgar/        # SEC EDGAR filings, insiders, 13F, XBRL
-│       ├── factor/           # Ken French data library
-│       ├── treasury/         # US Treasury Fiscal Data
-│       ├── news/             # Massive news API
-│       ├── earnings/         # Finnhub earnings calendar + surprises
-│       ├── estimates/        # Finnhub analyst recommendation trends
-│       ├── eia/              # EIA energy data (petroleum, natgas, electricity)
-│       └── cftc/             # CFTC Commitments of Traders (weekly positioning)
-└── logs/                     # per-provider runtime logs
-```
-
-Each provider under `src/traider/providers/` is a module with its
-own `AGENTS.md` and `README.md`. Provider modules are loaded
-**lazily** — only the ones listed in `TRAIDER_PROVIDERS` are imported,
-so you don't pay the dep-load or warmup cost for providers you aren't
-using.
-
-## Selecting which providers to load
+## Available providers
 
 One env var, `TRAIDER_PROVIDERS`, controls the exposed tool surface:
 
@@ -115,12 +78,12 @@ and what's not available:
 
 ## Quickstart
 
-1. **Configure credentials** in `.env`.
-2. **Run the server** — with [Docker](#run-with-docker-recommended)
-   (recommended) or [directly on the host](#run-on-the-host-alternative).
-3. **[Wire the server into your AI CLI](#connect-your-ai-cli).**
+1. **[Configure credentials](#1-configure-credentials)** in `.env`.
+2. **[Run the server](#2-run-the-server)** — with Docker
+   (recommended) or directly on the host.
+3. **[Connect your AI CLI](#3-connect-your-ai-cli)** to the server.
 
-### Configure credentials
+### 1. Configure credentials
 
 Copy the template and edit:
 
@@ -128,8 +91,9 @@ Copy the template and edit:
 cp .env.dist .env
 ```
 
-Set `TRAIDER_PROVIDERS` to the providers you want, plus credentials
-for the ones that need them:
+Set `TRAIDER_PROVIDERS` to the providers you want (see [Available
+providers](#available-providers) above), plus credentials for the
+ones that need them:
 
 ```
 TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar
@@ -150,7 +114,9 @@ The `yahoo`, `fed-calendar`, `factor`, and `treasury` providers need no
 credentials. Never commit `.env` or paste its contents into logs or
 chat.
 
-### Run with Docker (recommended)
+### 2. Run the server
+
+#### With Docker (recommended)
 
 One image, one service, one port. You skip installing conda + the
 TA-Lib C library on your host.
@@ -173,7 +139,7 @@ provider log files land in `./logs/` on the host
 Switch provider mix: edit `TRAIDER_PROVIDERS` in `.env`, then
 `docker compose restart`. No rebuild needed unless deps changed.
 
-### Run on the host (alternative)
+#### On the host (alternative)
 
 No Docker. Use a conda env because TA-Lib needs the native C library.
 
@@ -191,12 +157,12 @@ traider --transport streamable-http --port 8765
 traider --transport stdio
 ```
 
-## Connect your AI CLI
+### 3. Connect your AI CLI
 
 The server exposes a single MCP endpoint. Register it once; the tools
 available are whatever providers you enabled in `TRAIDER_PROVIDERS`.
 
-### Claude Code
+#### Claude Code
 
 ```bash
 # HTTP (Docker, or any streamable-http run):
@@ -209,7 +175,7 @@ claude mcp add --transport stdio traider -- traider --transport stdio
 Add `--scope user` for cross-project or `--scope project` to check it
 into `.mcp.json`. Verify with `claude mcp list`.
 
-### OpenCode
+#### OpenCode
 
 `opencode.json` (project) or `~/.config/opencode/opencode.json`
 (user):
@@ -229,7 +195,7 @@ into `.mcp.json`. Verify with `claude mcp list`.
 
 Stdio variant: `"type": "local", "command": ["traider", "--transport", "stdio"]`.
 
-### Gemini CLI
+#### Gemini CLI
 
 `.gemini/settings.json` (project) or `~/.gemini/settings.json` (user):
 
@@ -314,3 +280,47 @@ not the goal — the analyst framing in `AGENTS.md` is what turns
 
 See [AGENTS.md](AGENTS.md) for the full set of traider-wide
 constraints (which every provider module inherits).
+
+## Development
+
+Internals for modifying the code — how the unified server loads
+providers, how to add a new provider, how to run the test suite —
+live in [DEVELOPING.md](DEVELOPING.md). The notes below are just
+enough to navigate the repo.
+
+### Repo layout
+
+```
+traider/
+├── AGENTS.md                 # analyst guidance (auto-loaded into your AI CLI)
+├── CLAUDE.md                 # Claude Code entry point — re-exports AGENTS.md
+├── DEVELOPING.md             # dev overlay (not auto-loaded)
+├── OPTIONS.md                # options-analysis methodology (loaded when options are in scope)
+├── RISK.md                   # trade-preparation methodology (loaded when sizing / stops are in scope)
+├── todo/PROVIDERS.md         # punch list of planned provider additions
+├── README.md                 # this file
+├── Dockerfile                # single image for the unified server
+├── docker-compose.yml        # one service, one port
+├── pyproject.toml            # installable package
+├── src/traider/
+│   └── providers/
+│       ├── schwab/           # Schwab Trader API + auth
+│       ├── yahoo/            # Yahoo Finance (via yfinance)
+│       ├── fred/             # FRED macro data / release calendar
+│       ├── fed_calendar/     # FOMC meeting calendar (primary source)
+│       ├── sec_edgar/        # SEC EDGAR filings, insiders, 13F, XBRL
+│       ├── factor/           # Ken French data library
+│       ├── treasury/         # US Treasury Fiscal Data
+│       ├── news/             # Massive news API
+│       ├── earnings/         # Finnhub earnings calendar + surprises
+│       ├── estimates/        # Finnhub analyst recommendation trends
+│       ├── eia/              # EIA energy data (petroleum, natgas, electricity)
+│       └── cftc/             # CFTC Commitments of Traders (weekly positioning)
+└── logs/                     # per-provider runtime logs
+```
+
+Each provider under `src/traider/providers/` is a module with its
+own `AGENTS.md` and `README.md`. Provider modules are loaded
+**lazily** — only the ones listed in `TRAIDER_PROVIDERS` are imported,
+so you don't pay the dep-load or warmup cost for providers you aren't
+using.
