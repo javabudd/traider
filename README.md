@@ -30,7 +30,7 @@ traider/
 ├── DEVELOPING.md             # dev overlay (not auto-loaded)
 ├── OPTIONS.md                # options-analysis methodology (loaded when options are in scope)
 ├── RISK.md                   # trade-preparation methodology (loaded when sizing / stops are in scope)
-├── PROVIDER_TODO.md          # punch list of planned provider additions
+├── todo/PROVIDERS.md         # punch list of planned provider additions
 ├── README.md                 # this file
 ├── Dockerfile                # single image for the unified server
 ├── docker-compose.yml        # one service, one port

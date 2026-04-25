@@ -1,8 +1,8 @@
-# PROVIDER_TODO.md — planned additions to the traider hub
+# todo/PROVIDERS.md — planned additions to the traider hub
 
 Punch list of MCP providers to add, grouped by the gap each one fills.
 All entries inherit the hub-wide rules in
-[AGENTS.md](AGENTS.md): read-only, primary sources preferred, secrets
+[AGENTS.md](../AGENTS.md): read-only, primary sources preferred, secrets
 out of repo/logs, surface 429s, no silent fallbacks.
 
 Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
@@ -15,7 +15,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   Primary source: `data.sec.gov` / `efts.sec.gov`. Auth: descriptive
   `SEC_EDGAR_USER_AGENT` only. Rate limit: 10 req/sec enforced
   client-side. See
-  [src/traider/providers/sec_edgar/README.md](src/traider/providers/sec_edgar/README.md).
+  [src/traider/providers/sec_edgar/README.md](../src/traider/providers/sec_edgar/README.md).
   Deferred from v1: Form 4 insider-scoped queries, 13F reverse
   lookup (who holds X?), submissions-feed overflow fan-out for deep
   history.
@@ -28,7 +28,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   ``X-Finnhub-Token`` header. Rate limit: 60 req/min, propagates as
   ``FinnhubError``. Free-tier coverage is US-only; international
   calendar is paid and deliberately not wired. Dev notes in
-  [DEVELOPING.md § earnings](DEVELOPING.md#earnings).
+  [DEVELOPING.md § earnings](../DEVELOPING.md#earnings).
   Deferred: consensus guidance breakouts (paid-tier on Finnhub),
   alternative sources (Zacks RSS, Nasdaq Data Link). Analyst
   estimates / revisions / price targets have graduated to the
@@ -41,7 +41,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   Rate limits propagate as `MassiveError` (no silent retries).
   Intentionally narrow: Massive's quote / aggregate endpoints are
   *not* wrapped — quotes stay on the market-data backends. See
-  [src/traider/providers/news/README.md](src/traider/providers/news/README.md).
+  [src/traider/providers/news/README.md](../src/traider/providers/news/README.md).
   Sentiment is Massive's model output; quote it with attribution.
 - [~] **estimates** — Partial. Shipped as a provider module wrapping
   Finnhub's free-tier ``/stock/recommendation`` (monthly sell-side
@@ -49,7 +49,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   counts per ticker). Reuses the ``FINNHUB_API_KEY`` from the
   ``earnings`` provider — one key, both providers, shared
   60 req/min budget. See
-  [src/traider/providers/estimates/README.md](src/traider/providers/estimates/README.md).
+  [src/traider/providers/estimates/README.md](../src/traider/providers/estimates/README.md).
 
   Still gapped (all premium on Finnhub, return 403 on the free
   key): **price targets** (``/stock/price-target``),
@@ -91,7 +91,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   debt-to-the-penny. No credentials. Yield curve routes to the `fred`
   provider (H.15: DGS1MO…DGS30, DFII real yields) — not duplicated
   here. See
-  [src/traider/providers/treasury/README.md](src/traider/providers/treasury/README.md).
+  [src/traider/providers/treasury/README.md](../src/traider/providers/treasury/README.md).
 - [ ] **eia** — US Energy Information Administration: weekly
   petroleum status, natural gas storage, electricity. Critical for
   energy-name trades. Primary source: `api.eia.gov/v2`. Auth:
@@ -167,7 +167,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   frequencies. Primary source: `mba.tuck.dartmouth.edu/…/ken.french/ftp/`.
   No credentials. Disk-cached with a 24 h TTL (`refresh=True` to
   override per-call). See
-  [src/traider/providers/factor/README.md](src/traider/providers/factor/README.md).
+  [src/traider/providers/factor/README.md](../src/traider/providers/factor/README.md).
   `get_dataset(filename)` is the escape hatch for the ~300 datasets
   outside the curated catalog (sort-based portfolios, international
   regional factors, etc.).
