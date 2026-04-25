@@ -1,20 +1,19 @@
 # yahoo provider
 
-Read-only Yahoo Finance bridge exposed as an MCP server. One of the
-MCP servers bundled in the [`traider`](../../README.md) hub (see the
-root [AGENTS.md](../../AGENTS.md) for how the hub is organized).
-See [AGENTS.md](AGENTS.md) in this directory for how this server's
-code is organized, the Yahoo-specific constraints, and the places its
-behavior diverges from the `schwab` provider.
+Read-only Yahoo Finance bridge. One of the provider modules bundled
+in the unified [`traider`](../../../../README.md) MCP server. See
+the root [AGENTS.md](../../../../AGENTS.md) for hub-wide analyst
+rules and [DEVELOPING.md § yahoo](../../../../DEVELOPING.md#yahoo)
+for dev internals.
 
 This provider exists as the **no-account-required alternative** to
-the `schwab` provider. The tool surface intentionally matches so prompts
-and analytics work on either. Only one backend runs at a time —
-pick with the `TRAIDER_BACKEND` environment variable (see
-[Choosing a backend](../../README.md#choosing-a-market-data-backend)
-in the hub README).
+the `schwab` provider. The tool surface intentionally matches so
+prompts and analytics work on either. The two are mutually exclusive
+— enable at most one in `TRAIDER_PROVIDERS` (see
+[Choosing a market-data backend](../../../../README.md#choosing-a-market-data-backend)
+in the root README for the comparison table).
 
-## What this MCP server can do
+## Tools
 
 All tools are **read-only**. Market data is pulled via
 [`yfinance`](https://pypi.org/project/yfinance/), which uses
@@ -170,15 +169,16 @@ raw Yahoo screener key (e.g. pass `index="growth_technology_stocks"`).
 ### `get_market_hours(markets, date=None)`
 
 **Not supported on the Yahoo backend.** Yahoo has no authoritative
-market-hours endpoint (exchange-aware, holiday-aware). The tool raises
-`YahooCapabilityError`. For authoritative session hours, switch to
-`TRAIDER_BACKEND=schwab`.
+market-hours endpoint (exchange-aware, holiday-aware). The tool
+raises `YahooCapabilityError`. For authoritative session hours,
+switch the market-data backend in `TRAIDER_PROVIDERS` to `schwab`.
 
 ### `get_accounts(include_positions=False)`
 
-**Not supported on the Yahoo backend.** Yahoo is a market-data source,
-not a brokerage. The tool raises `YahooCapabilityError`. Portfolio-
-aware prompts need the Schwab backend (or another broker provider).
+**Not supported on the Yahoo backend.** Yahoo is a market-data
+source, not a brokerage. The tool raises `YahooCapabilityError`.
+Portfolio-aware prompts need the Schwab backend (or another broker
+provider).
 
 ### `analyze_returns(symbol, ...)`
 
@@ -212,6 +212,22 @@ Log-price spread with rolling z-score and AR(1) half-life in bars.
 `|zscore| > ~2` on a mean-reverting pair (finite `half_life_bars`)
 is the classic stat-arb entry signal.
 
+### `analyze_session_ranges(symbol, ...)`
+
+Per-day Asia / London / New York session ranges with a tight-Asia
+flag and a London-sweeps-Asia signal. Defaults pull ~10 days of
+30-minute bars with extended-hours coverage so Asia (default
+18:00-03:00 ET) is included; sessions are bucketed in `timezone`
+(default `America/New_York`) and keyed to the date the session
+*ends* on. Per session: high / low / range / open / close / bar
+count. Asia adds `tight_baseline` / `tight` (rolling-median range
+heuristic, configurable via `tight_lookback` / `tight_multiplier`);
+London adds `swept_asia_high` / `swept_asia_low` / `sweep` flags
+when London exceeded an Asia extreme and closed back through it.
+Same caveats as the rest of the Yahoo backend — intraday history is
+capped (~60 days for sub-hourly), so requested windows are subject
+to those limits.
+
 > **Install note.** TA-Lib is a C library with a Python wrapper. On
 > conda: `conda install -c conda-forge ta-lib`. On other systems,
 > install the C library first (Homebrew: `brew install ta-lib`;
@@ -220,36 +236,16 @@ is the classic stat-arb entry signal.
 
 ## Setup
 
-### 1. Create the `traider` conda environment
+No credentials, no OAuth — yfinance is unauthenticated.
 
-Same env every server in this hub uses (Python 3.13):
+1. Add `yahoo` to `TRAIDER_PROVIDERS`. **Do not also enable
+   `schwab`** — they expose the same tool names and the server
+   rejects the pair at startup.
+2. Start the hub as normal — no separate port. Tools are exposed on
+   the shared endpoint at `http://localhost:8765/mcp`.
 
-```bash
-conda create -n traider python=3.13
-conda activate traider
-```
-
-### 2. Install the package
-
-From the repo root:
-
-```bash
-conda activate traider
-pip install -e ./mcp_servers/yahoo_connector
-```
-
-### 3. Run the server
-
-```bash
-yahoo-connector                                           # stdio
-yahoo-connector --transport streamable-http --port 8765   # HTTP
-```
-
-No OAuth, no API key, no tokens — yfinance is unauthenticated.
-Register the server with your AI CLI the same way you would the
-Schwab provider — the
-[hub README](../../README.md#connect-your-ai-cli) has the recipes for
-Claude Code, OpenCode, and Gemini CLI.
+The environment, install, and server-launch flow live in the root
+[README](../../../../README.md#quickstart) (Docker and host paths).
 
 ## Prompts that put these tools to work
 

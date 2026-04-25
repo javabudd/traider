@@ -1,15 +1,15 @@
 # schwab provider
 
-Read-only Schwab Trader API bridge exposed as an MCP server. One of the
-MCP servers bundled in the [`traider`](../../README.md) hub (see the
-root [AGENTS.md](../../AGENTS.md) for how the hub is organized).
-See [AGENTS.md](AGENTS.md) in this directory for how this server's
-code is organized and what to watch out for.
+Read-only Schwab Trader API bridge. One of the provider modules
+bundled in the unified [`traider`](../../../../README.md) MCP server.
+See the root [AGENTS.md](../../../../AGENTS.md) for hub-wide analyst
+rules and
+[DEVELOPING.md § schwab](../../../../DEVELOPING.md#schwab) for dev
+internals.
 
-## What this MCP server can do
+## Tools
 
-Once the server is running and Claude is connected, Claude gets the
-tools below. All are **read-only** — no orders, no alerts, no writes.
+All are **read-only** — no orders, no alerts, no writes.
 
 Market-data tools (quotes, candles, TA, movers, instruments, hours)
 hit `/marketdata/v1/*`. Account tools (positions snapshot, hashed
@@ -380,6 +380,42 @@ estimated by OLS of `log(A)` on `log(B)` over the shared window.
 `|zscore| > ~2` on a mean-reverting pair (finite `half_life_bars`)
 is the classic stat-arb entry signal. `tail` trims returned series.
 
+### `analyze_session_ranges(symbol, ...)`
+
+Per-day Asia / London / New York session ranges for an intraday
+chart, with a tight-Asia flag and a London-sweeps-Asia signal. Needs
+intraday bars with extended-hours coverage — Asia (default 18:00-03:00
+ET) sits entirely outside US RTH, so `need_extended_hours_data`
+defaults to `True`.
+
+Defaults pull ~10 days of 30-minute bars; price-history params behave
+exactly like `get_price_history`. Session windows are `"HH:MM"`
+strings interpreted in `timezone` (default `America/New_York`); each
+day's three sessions are keyed to the date the session *ends* on, so
+previous-evening Asia bars roll up with the following trading day's
+London and NY sessions.
+
+Per session, returns high / low / range / open / close / bar count /
+first and last bar timestamps. Asia adds:
+
+- `tight_baseline` — rolling median of the prior `tight_lookback`
+  Asia ranges (`null` until filled).
+- `tight` — `True` when `range < tight_baseline * tight_multiplier`,
+  else `False` (`null` until baseline available). Pragmatic default,
+  not a canonical ICT definition — adjust `tight_lookback` /
+  `tight_multiplier` or reinterpret client-side against ATR if you
+  want a different convention.
+
+London adds (only when both Asia and London have bars that day):
+
+- `swept_asia_high` — `True` when London's high exceeded Asia's high
+  AND London closed back below it.
+- `swept_asia_low` — mirror for the low.
+- `sweep` — list of `"high"` / `"low"` flags or `null`.
+
+A pure breakout (London took the level and closed beyond it) is not
+flagged as a sweep. `tail` trims to the last N days.
+
 > **Install note.** TA-Lib is a C library with a Python wrapper. On
 > conda: `conda install -c conda-forge ta-lib`. On other systems,
 > install the C library first (Homebrew: `brew install ta-lib`; Debian:
@@ -500,7 +536,7 @@ most of these examples intentionally pull from several at once.
 ## Setup
 
 The environment, install, and server-launch flow live in the root
-[README](../../../README.md#quickstart) (Docker and host paths). This
+[README](../../../../README.md#quickstart) (Docker and host paths). This
 section covers only what's specific to schwab: registering a developer
 app, wiring the credentials, and running the one-time OAuth bootstrap.
 
@@ -587,6 +623,6 @@ session, only when the refresh token itself has expired.
 ### 4. Run the server
 
 Use the standard `traider` entry point described in the root
-[README](../../../README.md#quickstart). `schwab` needs to be included
+[README](../../../../README.md#quickstart). `schwab` needs to be included
 in `TRAIDER_PROVIDERS`, and must not coexist with `yahoo` (they expose
 the same tool names and the server rejects the pair at startup).

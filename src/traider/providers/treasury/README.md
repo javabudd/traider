@@ -1,21 +1,15 @@
 # treasury provider
 
 Read-only [Treasury Fiscal Data](https://fiscaldata.treasury.gov)
-bridge exposed as an MCP server. One of the MCP servers bundled in
-the [`traider`](../../README.md) hub (see the root
-[AGENTS.md](../../AGENTS.md) for how the hub is organized). See
-[AGENTS.md](AGENTS.md) in this directory for the per-server
-constraints and gotchas.
+bridge. One of the provider modules bundled in the unified
+[`traider`](../../../../README.md) MCP server. See the root
+[AGENTS.md](../../../../AGENTS.md) for hub-wide analyst rules and
+[DEVELOPING.md § treasury](../../../../DEVELOPING.md#treasury) for
+dev internals.
 
-Unlike the `schwab` / `yahoo` providers, this one is
-**additive**: it exposes Treasury auction mechanics, the Daily
-Treasury Statement, and daily total debt outstanding rather than
-equity quotes, and it runs on a different port (8772) so it can sit
-alongside whichever market-data backend you picked.
+## Scope — and what `fred` covers instead
 
-## Scope — and what FRED covers instead
-
-This server is the primary source for the pieces of Treasury data
+This provider is the primary source for the pieces of Treasury data
 that FRED does **not** carry:
 
 - Treasury-securities auction results (bid-to-cover, bidder mix,
@@ -25,24 +19,23 @@ that FRED does **not** carry:
 - Debt to the penny (daily total public debt outstanding).
 
 For **yield-curve queries** — the 2Y, 10Y, 30Y, TIPS real yields,
-etc. — use the [`fred` provider](../fred/README.md).
-FRED mirrors Treasury's H.15 Daily Treasury Yield Curve in full
-(`DGS1MO` … `DGS30`, `DFII*`). Routing those through FRED keeps the
-mental model simple: macro time-series via FRED, Treasury-primary-
-source data (auctions, DTS, debt) via this server.
+etc. — use the [`fred` provider](../fred/README.md). FRED mirrors
+Treasury's H.15 Daily Treasury Yield Curve in full (`DGS1MO` …
+`DGS30`, `DFII*`). Routing those through FRED keeps the mental model
+simple: macro time-series via FRED, Treasury-primary-source data
+(auctions, DTS, debt) via this provider.
 
-## What this MCP server can do
+## Tools
 
-All tools are **read-only**. Every response is Fiscal Data's JSON
-essentially unchanged — the model can introspect raw fields rather
-than trust a translation layer.
+All tools return Fiscal Data's JSON essentially unchanged inside a
+`source` / `fetched_at` envelope.
 
 ### `get_auction_results(...)`
 
-Treasury-securities auction results. Returns the subset of fields a
-trader actually reads when sizing demand for a refunding: bid-to-
-cover, stop-out yield/rate, primary-dealer takedown, direct vs
-indirect bidder share.
+Treasury-securities auction results. The default `fields` projection
+covers what a trader actually reads when sizing demand for a
+refunding: bid-to-cover, stop-out yield/rate, primary-dealer
+takedown, direct vs indirect bidder share.
 
 - `security_type` — `Bill`, `Note`, `Bond`, `CMB`, `TIPS`, or `FRN`.
   Omit for all.
@@ -52,8 +45,8 @@ indirect bidder share.
 - `start_date` / `end_date` — ISO `YYYY-MM-DD` bounds on
   `auction_date`. Default start is 90 days ago.
 - `fields` — column projection. Omit for the curated default; pass
-  your own list to pull any of the ~90 auctions_query columns
-  (see Fiscal Data's
+  your own list to pull any of the ~90 auctions_query columns (see
+  Fiscal Data's
   [securities auctions dataset](https://fiscaldata.treasury.gov/datasets/securities-auctions-data)
   for the full schema).
 - `limit`, `page`, `sort` — standard Fiscal Data paging / ordering.
@@ -80,7 +73,7 @@ Other params:
   start is 30 days ago.
 - `fields`, `limit`, `page`, `sort` — as above.
 
-The DTS changed format in October 2022. This server only talks to
+The DTS changed format in October 2022. This provider only talks to
 the new-format JSON tables; queries spanning the old PDF format will
 return only new-format rows.
 
@@ -98,40 +91,29 @@ Response columns: `debt_held_public_amt` (market-held),
 
 ## Setup
 
-### 1. No credentials required
+No credentials required — Fiscal Data is unauthenticated.
 
-Fiscal Data is unauthenticated. Nothing to configure.
+1. Add `treasury` to `TRAIDER_PROVIDERS`.
+2. Start the hub as normal — no separate port. Tools are exposed on
+   the shared endpoint at `http://localhost:8765/mcp`.
 
-### 2. Install
+## Coverage and limits
 
-```bash
-conda activate traider
-pip install -e ./mcp_servers/treasury_connector
-```
-
-### 3. Run the server
-
-```bash
-treasury-connector                                           # stdio
-treasury-connector --transport streamable-http --port 8772   # HTTP
-```
-
-Or via Docker (together with whichever backend is active), from the
-repo root:
-
-```bash
-docker compose --profile treasury up -d
-```
-
-Add `treasury` to `COMPOSE_PROFILES` in `.env` to run it as part of
-the hub's default `docker compose up -d`.
-
-## Connect your AI CLI
-
-Same recipes as the rest of the hub; the
-[hub README](../../README.md#connect-your-ai-cli) has the full
-Claude Code / OpenCode / Gemini CLI examples. The HTTP endpoint is
-`http://localhost:8772/mcp`.
+- **Unauthenticated, but still be polite.** Fiscal Data is
+  rate-tolerant but not infinite. Tools paginate by default
+  (`limit=100`); bump `limit` up to 10 000 if you're pulling a long
+  window.
+- **Amounts are strings.** Monetary fields come back as strings
+  (e.g. `"847182563921.43"`) so precision isn't lost to float. Parse
+  on the consumer side if you need to do arithmetic.
+- **`auction_date` vs `record_date`.** Auctions are filtered on
+  `auction_date` (when the sale happened). DTS and debt-to-the-penny
+  are filtered on `record_date` (the date the statement covers).
+- **DTS new-format only.** The 2022 format change broke the old
+  tables' schema; this provider is wired to the new JSON tables. If
+  you need pre-2022 DTS data, go to the PDF archive directly.
+- **No fallback if upstream is down.** Fiscal Data errors raise
+  `TreasuryError`. The provider does not silently serve stale data.
 
 ## Prompts that put these tools to work
 
@@ -148,27 +130,9 @@ Claude Code / OpenCode / Gemini CLI examples. The HTTP endpoint is
   `get_auction_results(security_type="Bill",
   start_date="<90d ago>", limit=500)`, then aggregate
   `bid_to_cover_ratio` by `security_term`.
-- **"What's the 10-year yield?"** — **not this server.** Use
-  the `fred` provider's `get_series("DGS10")`.
+- **"What's the 10-year yield?"** — **not this provider.** Use the
+  `fred` provider's `get_series("DGS10")`.
 
 Pair these with the `fred` provider to condition on macro-release
-timing, and with `schwab` / `yahoo` when you're
-sizing equity or option trades around a Treasury refunding week.
-
-## Things worth knowing
-
-- **Unauthenticated, but still be polite.** Fiscal Data is rate-
-  tolerant but not infinite. The tool surface paginates by default
-  (limit=100); bump `limit` up to 10 000 if you're pulling a long
-  window.
-- **Amounts are strings.** Monetary fields come back as strings
-  (e.g. `"847182563921.43"`) so precision isn't lost to float. Parse
-  on the consumer side if you need to do arithmetic.
-- **`auction_date` vs `record_date`.** Auctions are filtered on
-  `auction_date` (when the sale happened). DTS and debt-to-the-penny
-  are filtered on `record_date` (the date the statement covers).
-- **DTS new-format only.** The 2022 format change broke the old
-  tables' schema; this server is wired to the new JSON tables. If
-  you need pre-2022 DTS data, go to the PDF archive directly.
-- **No fallback if upstream is down.** Fiscal Data errors raise
-  `TreasuryError`. The server does not silently serve stale data.
+timing, and with `schwab` / `yahoo` when you're sizing equity or
+option trades around a Treasury refunding week.
