@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import atexit
+import datetime as _dt
 import logging
 from typing import Any
 
@@ -10,6 +11,12 @@ from mcp.server.fastmcp import FastMCP
 from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from .massive_client import MassiveClient
+
+_NEWS_SOURCE = "https://api.massive.com/v2/reference/news"
+
+
+def _now_iso() -> str:
+    return _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds")
 
 _VALID_ORDER = frozenset({"asc", "desc"})
 
@@ -64,9 +71,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             sort: Field to sort by. Defaults to ``published_utc``.
 
         Returns:
-            Massive's response JSON unchanged — ``status``, ``count``,
-            ``results`` (article list), ``next_url`` (pagination cursor
-            when more rows are available), ``request_id``.
+            ``{"source", "fetched_at", **massive_response}`` — Massive's
+            ``status``, ``count``, ``results`` (article list),
+            ``next_url`` (pagination cursor when more rows are
+            available), and ``request_id`` are passed through alongside
+            the hub envelope.
         """
         if order not in _VALID_ORDER:
             raise ValueError(
@@ -79,8 +88,9 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_news ticker=%s after=%s before=%s limit=%d order=%s sort=%s",
             ticker, published_after, published_before, limit, order, sort,
         )
+        fetched_at = _now_iso()
         try:
-            return _get_client().news(
+            payload = _get_client().news(
                 ticker=ticker,
                 published_utc_gte=published_after,
                 published_utc_lte=published_before,
@@ -91,3 +101,8 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("get_news failed")
             raise
+        return {
+            "source": _NEWS_SOURCE,
+            "fetched_at": fetched_at,
+            **payload,
+        }

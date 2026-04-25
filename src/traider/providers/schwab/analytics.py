@@ -380,7 +380,7 @@ def rolling_zscore(
             out[i] = float((x[i] - mu) / sd)
     return _jsonify({
         "window": window,
-        "source": source,
+        "series_source": source,
         "datetime": dts,
         "zscore": out,
     })

@@ -21,6 +21,16 @@ from .options_summary import summarize_chain
 from .ta import run_indicators
 from .yahoo_client import YahooClient
 
+YAHOO_BASE = "https://finance.yahoo.com"
+
+
+def _quote_src(symbol: str) -> str:
+    return f"{YAHOO_BASE}/quote/{symbol}"
+
+
+def _options_src(symbol: str) -> str:
+    return f"{YAHOO_BASE}/quote/{symbol}/options"
+
 logger = logging.getLogger("traider.yahoo")
 _client: YahooClient | None = None
 
@@ -66,7 +76,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
     attach_provider_logger("traider.yahoo", settings.log_file("yahoo"))
 
     @mcp.tool()
-    def get_quote(symbol: str, field: str = "LAST") -> str:
+    def get_quote(symbol: str, field: str = "LAST") -> dict[str, Any]:
         """Return a single field for one symbol.
 
         Args:
@@ -77,33 +87,50 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 ``VOLUME``, ``MARK``, ``OPEN``, ``HIGH``, ``LOW``, ``CLOSE``,
                 ``NET_CHANGE``, ``PERCENT_CHANGE``, ``BID_SIZE``,
                 ``ASK_SIZE``) or a native quote key.
+
+        Returns ``{"source", "fetched_at", "symbol", "field", "value"}``.
+        ``value`` is the field as a string, or ``""`` when the field
+        isn't present on the quote.
         """
         logger.info("get_quote symbol=%s field=%s", symbol, field)
+        fetched_at = _now_iso()
         try:
             value = _get_client().get_quote(symbol, field)
         except Exception:
             logger.exception("get_quote failed symbol=%s field=%s", symbol, field)
             raise
         logger.info("get_quote result symbol=%s field=%s value=%r", symbol, field, value)
-        return "" if value is None else str(value)
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            "field": field,
+            "value": "" if value is None else str(value),
+        }
 
     @mcp.tool()
     def get_quotes(
         symbols: list[str],
         fields: list[str] | None = None,
-    ) -> dict[str, dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Return many fields for many symbols.
 
-        Returns a nested mapping ``{symbol: {field: value}}``. If ``fields``
-        is omitted, each symbol's entry is the full quote payload.
+        Returns ``{"source", "fetched_at", "quotes": {symbol: {field:
+        value}}}``. If ``fields`` is omitted, each symbol's entry is
+        the full quote payload.
         """
         logger.info("get_quotes symbols=%s fields=%s", symbols, fields)
+        fetched_at = _now_iso()
         try:
             results = _get_client().get_quotes(symbols, fields)
         except Exception:
             logger.exception("get_quotes failed symbols=%s fields=%s", symbols, fields)
             raise
-        return results
+        return {
+            "source": YAHOO_BASE,
+            "fetched_at": fetched_at,
+            "quotes": results,
+        }
 
     @mcp.tool()
     def get_price_history(
@@ -141,6 +168,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_price_history symbol=%s period=%s%s frequency=%s%s",
             symbol, period, period_type, frequency, frequency_type,
         )
+        fetched_at = _now_iso()
         try:
             result = _get_client().get_price_history(
                 symbol,
@@ -161,7 +189,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_price_history result symbol=%s candles=%d empty=%s",
             symbol, len(candles), result.get("empty"),
         )
-        return result
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def run_technical_analysis(
@@ -207,7 +239,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "run_technical_analysis result symbol=%s candles=%d labels=%s",
             symbol, len(candles), list(result["indicators"].keys()),
         )
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
 
     @mcp.tool()
     def get_option_chain(
@@ -247,6 +284,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_option_chain symbol=%s type=%s strategy=%s",
             symbol, contract_type, strategy,
         )
+        fetched_at = _now_iso()
         try:
             result = _get_client().get_option_chain(
                 symbol,
@@ -269,7 +307,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("get_option_chain failed symbol=%s", symbol)
             raise
-        return result
+        return {
+            "source": _options_src(symbol),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_option_chain(
@@ -328,6 +370,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_option_chain failed symbol=%s", symbol)
             raise
+        summary["source"] = _options_src(symbol)
         summary["fetched_at"] = fetched_at
         return summary
 
@@ -342,12 +385,17 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         — switch to Schwab for standard-vs-weekly/AM-vs-PM tagging.
         """
         logger.info("get_option_expirations symbol=%s", symbol)
+        fetched_at = _now_iso()
         try:
             result = _get_client().get_option_expirations(symbol)
         except Exception:
             logger.exception("get_option_expirations failed symbol=%s", symbol)
             raise
-        return result
+        return {
+            "source": _options_src(symbol),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def get_movers(
@@ -365,12 +413,17 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         ``frequency`` is accepted for signature parity and ignored.
         """
         logger.info("get_movers index=%s sort=%s frequency=%s", index, sort, frequency)
+        fetched_at = _now_iso()
         try:
             result = _get_client().get_movers(index, sort=sort, frequency=frequency)
         except Exception:
             logger.exception("get_movers failed index=%s", index)
             raise
-        return result
+        return {
+            "source": f"{YAHOO_BASE}/markets",
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def search_instruments(
@@ -387,12 +440,17 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 EPS, dividend yield, 52-week range, market cap, …).
         """
         logger.info("search_instruments symbol=%s projection=%s", symbol, projection)
+        fetched_at = _now_iso()
         try:
             result = _get_client().search_instruments(symbol, projection=projection)
         except Exception:
             logger.exception("search_instruments failed symbol=%s", symbol)
             raise
-        return result
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def get_market_hours(
@@ -446,7 +504,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_returns failed symbol=%s", symbol)
             raise
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_correlation(
@@ -474,7 +537,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_correlation failed symbols=%s", symbols)
             raise
-        return {"fetched_at": fetched_at, **result}
+        return {
+            "source": YAHOO_BASE,
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_beta(
@@ -507,9 +574,10 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             logger.exception("analyze_beta failed symbol=%s vs %s", symbol, benchmark)
             raise
         return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
             "symbol": symbol,
             "benchmark": benchmark,
-            "fetched_at": fetched_at,
             **result,
         }
 
@@ -547,7 +615,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_volatility_regime failed symbol=%s", symbol)
             raise
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_zscore(
@@ -581,7 +654,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         if tail is not None and tail > 0 and "zscore" in result:
             result["datetime"] = result["datetime"][-tail:]
             result["zscore"] = result["zscore"][-tail:]
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_pair_spread(
@@ -623,9 +701,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             result["datetime"] = result["datetime"][-tail:]
             result["spread"] = result["spread"][-tail:]
             result["zscore"] = result["zscore"][-tail:]
-        result["symbols"] = [symbol_a, symbol_b]
-        result["fetched_at"] = fetched_at
-        return result
+        return {
+            "source": YAHOO_BASE,
+            "fetched_at": fetched_at,
+            "symbols": [symbol_a, symbol_b],
+            **result,
+        }
 
     @mcp.tool()
     def analyze_session_ranges(
@@ -733,4 +814,9 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         if tail is not None and tail > 0 and "days" in result:
             result["days"] = result["days"][-tail:]
             result["n_days"] = len(result["days"])
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _quote_src(symbol),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }

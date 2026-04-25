@@ -17,8 +17,12 @@ from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
 from . import analytics
 from .options_summary import summarize_chain
-from .schwab_client import SchwabClient
+from .schwab_client import SCHWAB_API_BASE, SchwabClient
 from .ta import run_indicators
+
+
+def _src(path: str) -> str:
+    return f"{SCHWAB_API_BASE}{path}"
 
 logger = logging.getLogger("traider.schwab")
 _client: SchwabClient | None = None
@@ -65,7 +69,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
     attach_provider_logger("traider.schwab", settings.log_file("schwab"))
 
     @mcp.tool()
-    def get_quote(symbol: str, field: str = "LAST") -> str:
+    def get_quote(symbol: str, field: str = "LAST") -> dict[str, Any]:
         """Return a single field for one symbol.
 
         Args:
@@ -79,6 +83,10 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 ``NET_CHANGE``, ``PERCENT_CHANGE``, ``BID_SIZE``,
                 ``ASK_SIZE``) or a native Schwab quote key (e.g.
                 ``lastPrice``, ``postMarketChange``, ``mark``).
+
+        Returns ``{"source", "fetched_at", "symbol", "field", "value"}``.
+        ``value`` is the field as a string, or ``""`` when the field
+        isn't present on the quote.
 
         **Symbology — index prefix.** Schwab's ``/quotes`` endpoint
         wants indices and CBOE yield products with a ``$`` prefix
@@ -127,23 +135,31 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         spec). Overnight visibility currently requires ToS.
         """
         logger.info("get_quote symbol=%s field=%s", symbol, field)
+        fetched_at = _now_iso()
         try:
             value = _get_client().get_quote(symbol, field)
         except Exception:
             logger.exception("get_quote failed symbol=%s field=%s", symbol, field)
             raise
         logger.info("get_quote result symbol=%s field=%s value=%r", symbol, field, value)
-        return "" if value is None else str(value)
+        return {
+            "source": _src("/marketdata/v1/quotes"),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            "field": field,
+            "value": "" if value is None else str(value),
+        }
 
     @mcp.tool()
     def get_quotes(
         symbols: list[str],
         fields: list[str] | None = None,
-    ) -> dict[str, dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Return many fields for many symbols in one call.
 
-        Returns a nested mapping ``{symbol: {field: value}}``. If ``fields``
-        is omitted, each symbol's entry is the full Schwab ``quote`` object.
+        Returns ``{"source", "fetched_at", "quotes": {symbol: {field:
+        value}}}``. If ``fields`` is omitted, each symbol's entry is
+        the full Schwab ``quote`` object.
 
         **Symbology.** Same rule as ``get_quote``: equities raw
         (``AAPL``), futures ``/``-prefixed (``/ES``), indices /
@@ -177,13 +193,18 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         no Schwab REST path covers 20:00–07:00 ET overnight.
         """
         logger.info("get_quotes symbols=%s fields=%s", symbols, fields)
+        fetched_at = _now_iso()
         try:
             results = _get_client().get_quotes(symbols, fields)
         except Exception:
             logger.exception("get_quotes failed symbols=%s fields=%s", symbols, fields)
             raise
         logger.info("get_quotes result=%r", results)
-        return results
+        return {
+            "source": _src("/marketdata/v1/quotes"),
+            "fetched_at": fetched_at,
+            "quotes": results,
+        }
 
     @mcp.tool()
     def get_price_history(
@@ -245,6 +266,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_price_history symbol=%s period=%s%s frequency=%s%s",
             symbol, period, period_type, frequency, frequency_type,
         )
+        fetched_at = _now_iso()
         try:
             result = _get_client().get_price_history(
                 symbol,
@@ -265,7 +287,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_price_history result symbol=%s candles=%d empty=%s",
             symbol, len(candles), result.get("empty"),
         )
-        return result
+        return {
+            "source": _src("/marketdata/v1/pricehistory"),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def run_technical_analysis(
@@ -338,7 +364,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "run_technical_analysis result symbol=%s candles=%d labels=%s",
             symbol, len(candles), list(result["indicators"].keys()),
         )
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _src("/marketdata/v1/pricehistory"),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
 
     @mcp.tool()
     def get_option_chain(
@@ -390,6 +421,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_option_chain symbol=%s type=%s strategy=%s",
             symbol, contract_type, strategy,
         )
+        fetched_at = _now_iso()
         try:
             result = _get_client().get_option_chain(
                 symbol,
@@ -412,7 +444,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("get_option_chain failed symbol=%s", symbol)
             raise
-        return result
+        return {
+            "source": _src("/marketdata/v1/chains"),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_option_chain(
@@ -468,6 +504,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_option_chain failed symbol=%s", symbol)
             raise
+        summary["source"] = _src("/marketdata/v1/chains")
         summary["fetched_at"] = fetched_at
         return summary
 
@@ -481,12 +518,17 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         available expirations before pulling a full chain slice.
         """
         logger.info("get_option_expirations symbol=%s", symbol)
+        fetched_at = _now_iso()
         try:
             result = _get_client().get_option_expirations(symbol)
         except Exception:
             logger.exception("get_option_expirations failed symbol=%s", symbol)
             raise
-        return result
+        return {
+            "source": _src("/marketdata/v1/expirationchain"),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def get_movers(
@@ -506,12 +548,17 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 30, 60.
         """
         logger.info("get_movers index=%s sort=%s frequency=%s", index, sort, frequency)
+        fetched_at = _now_iso()
         try:
             result = _get_client().get_movers(index, sort=sort, frequency=frequency)
         except Exception:
             logger.exception("get_movers failed index=%s", index)
             raise
-        return result
+        return {
+            "source": _src(f"/marketdata/v1/movers/{index}"),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def search_instruments(
@@ -529,12 +576,17 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 dividends, 52-week range, etc.).
         """
         logger.info("search_instruments symbol=%s projection=%s", symbol, projection)
+        fetched_at = _now_iso()
         try:
             result = _get_client().search_instruments(symbol, projection=projection)
         except Exception:
             logger.exception("search_instruments failed symbol=%s", symbol)
             raise
-        return result
+        return {
+            "source": _src("/marketdata/v1/instruments"),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def get_market_hours(
@@ -549,20 +601,26 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             date: ``YYYY-MM-DD``. Defaults to today.
         """
         logger.info("get_market_hours markets=%s date=%s", markets, date)
+        fetched_at = _now_iso()
         try:
             result = _get_client().get_market_hours(markets, date=date)
         except Exception:
             logger.exception("get_market_hours failed markets=%s", markets)
             raise
-        return result
+        return {
+            "source": _src("/marketdata/v1/markets"),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
-    def get_accounts(include_positions: bool = False) -> list[dict[str, Any]]:
+    def get_accounts(include_positions: bool = False) -> dict[str, Any]:
         """Authorized accounts (read-only).
 
-        Returns raw Schwab ``securitiesAccount`` records — balances,
-        buying power, and (optionally) positions with cost basis,
-        market value, and open P&L.
+        Returns ``{"source", "fetched_at", "count", "accounts": [...]}``
+        where each entry is a raw Schwab ``securitiesAccount`` record —
+        balances, buying power, and (optionally) positions with cost
+        basis, market value, and open P&L.
 
         **Reading P&L fields correctly — this is a trap.** On a
         position opened *today*, Schwab reports ``currentDayProfitLoss``
@@ -607,16 +665,22 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 (quantity, cost basis, market value, unrealized P&L).
         """
         logger.info("get_accounts include_positions=%s", include_positions)
+        fetched_at = _now_iso()
         try:
-            result = _get_client().get_accounts(include_positions=include_positions)
+            accounts = _get_client().get_accounts(include_positions=include_positions)
         except Exception:
             logger.exception("get_accounts failed")
             raise
-        logger.info("get_accounts result count=%d", len(result))
-        return result
+        logger.info("get_accounts result count=%d", len(accounts))
+        return {
+            "source": _src("/trader/v1/accounts"),
+            "fetched_at": fetched_at,
+            "count": len(accounts),
+            "accounts": accounts,
+        }
 
     @mcp.tool()
-    def get_account_numbers() -> list[dict[str, Any]]:
+    def get_account_numbers() -> dict[str, Any]:
         """Plaintext account number → hashed account ID mapping.
 
         Every ``/trader/v1/accounts/{hash}/...`` endpoint in traider
@@ -624,16 +688,23 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         which hash corresponds to a given plaintext account number on
         your Schwab login.
 
-        Returns a list of ``{"accountNumber", "hashValue"}`` pairs.
+        Returns ``{"source", "fetched_at", "count", "accounts": [...]}``
+        where each entry is ``{"accountNumber", "hashValue"}``.
         """
         logger.info("get_account_numbers")
+        fetched_at = _now_iso()
         try:
-            result = _get_client().get_account_numbers()
+            accounts = _get_client().get_account_numbers()
         except Exception:
             logger.exception("get_account_numbers failed")
             raise
-        logger.info("get_account_numbers result count=%d", len(result))
-        return result
+        logger.info("get_account_numbers result count=%d", len(accounts))
+        return {
+            "source": _src("/trader/v1/accounts/accountNumbers"),
+            "fetched_at": fetched_at,
+            "count": len(accounts),
+            "accounts": accounts,
+        }
 
     def _resolve_account_hash(explicit: str | None) -> str:
         if explicit is not None:
@@ -672,7 +743,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         account_hash: str | None = None,
         symbol: str | None = None,
         types: str | list[str] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Transaction history for one account (read-only).
 
         Returns raw Schwab transaction records — trades (with fill
@@ -712,15 +783,19 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         ``transferItems`` entries with ``feeType`` populated. Schwab
         typically caps the lookback at ~1 year — narrow the window if
         the API errors on a long range.
+
+        Returns ``{"source", "fetched_at", "count", "transactions":
+        [...]}``.
         """
         logger.info(
             "get_transactions start=%s end=%s symbol=%s types=%s account=%s",
             start_date, end_date, symbol, types,
             "<auto>" if account_hash is None else "<explicit>",
         )
+        fetched_at = _now_iso()
         try:
             resolved = _resolve_account_hash(account_hash)
-            result = _get_client().get_transactions(
+            transactions = _get_client().get_transactions(
                 account_hash=resolved,
                 start_date=start_date,
                 end_date=end_date,
@@ -730,8 +805,13 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("get_transactions failed")
             raise
-        logger.info("get_transactions result count=%d", len(result))
-        return result
+        logger.info("get_transactions result count=%d", len(transactions))
+        return {
+            "source": _src(f"/trader/v1/accounts/{resolved}/transactions"),
+            "fetched_at": fetched_at,
+            "count": len(transactions),
+            "transactions": transactions,
+        }
 
     @mcp.tool()
     def get_transaction(
@@ -752,12 +832,20 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             transaction_id,
             "<auto>" if account_hash is None else "<explicit>",
         )
+        fetched_at = _now_iso()
         try:
             resolved = _resolve_account_hash(account_hash)
-            return _get_client().get_transaction(resolved, transaction_id)
+            transaction = _get_client().get_transaction(resolved, transaction_id)
         except Exception:
             logger.exception("get_transaction failed id=%s", transaction_id)
             raise
+        return {
+            "source": _src(
+                f"/trader/v1/accounts/{resolved}/transactions/{transaction_id}"
+            ),
+            "fetched_at": fetched_at,
+            **transaction,
+        }
 
     @mcp.tool()
     def get_orders(
@@ -766,7 +854,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         status: str | None = None,
         max_results: int | None = None,
         account_hash: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Orders for one account, filterable by status (read-only).
 
         Returns raw Schwab order records — every order entered in the
@@ -812,18 +900,21 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         the ``instrument`` block with symbol / OSI). Multi-leg and
         conditional (OCO / trigger) orders nest children under
         ``childOrderStrategies`` — walk that array to see every leg.
+
+        Returns ``{"source", "fetched_at", "count", "orders": [...]}``.
         """
         logger.info(
             "get_orders from=%s to=%s status=%s max=%s account=%s",
             from_entered_time, to_entered_time, status, max_results,
             "<auto>" if account_hash is None else "<explicit>",
         )
+        fetched_at = _now_iso()
         try:
             resolved_from, resolved_to = _resolve_order_window(
                 from_entered_time, to_entered_time
             )
             resolved_hash = _resolve_account_hash(account_hash)
-            result = _get_client().get_orders(
+            orders = _get_client().get_orders(
                 account_hash=resolved_hash,
                 from_entered_time=resolved_from,
                 to_entered_time=resolved_to,
@@ -833,8 +924,13 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("get_orders failed")
             raise
-        logger.info("get_orders result count=%d", len(result))
-        return result
+        logger.info("get_orders result count=%d", len(orders))
+        return {
+            "source": _src(f"/trader/v1/accounts/{resolved_hash}/orders"),
+            "fetched_at": fetched_at,
+            "count": len(orders),
+            "orders": orders,
+        }
 
     @mcp.tool()
     def get_order(
@@ -854,12 +950,18 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             order_id,
             "<auto>" if account_hash is None else "<explicit>",
         )
+        fetched_at = _now_iso()
         try:
             resolved = _resolve_account_hash(account_hash)
-            return _get_client().get_order(resolved, order_id)
+            order = _get_client().get_order(resolved, order_id)
         except Exception:
             logger.exception("get_order failed id=%s", order_id)
             raise
+        return {
+            "source": _src(f"/trader/v1/accounts/{resolved}/orders/{order_id}"),
+            "fetched_at": fetched_at,
+            **order,
+        }
 
     @mcp.tool()
     def analyze_returns(
@@ -895,7 +997,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_returns failed symbol=%s", symbol)
             raise
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _src("/marketdata/v1/pricehistory"),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_correlation(
@@ -926,7 +1033,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_correlation failed symbols=%s", symbols)
             raise
-        return {"fetched_at": fetched_at, **result}
+        return {
+            "source": _src("/marketdata/v1/pricehistory"),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_beta(
@@ -959,9 +1070,10 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             logger.exception("analyze_beta failed symbol=%s vs %s", symbol, benchmark)
             raise
         return {
+            "source": _src("/marketdata/v1/pricehistory"),
+            "fetched_at": fetched_at,
             "symbol": symbol,
             "benchmark": benchmark,
-            "fetched_at": fetched_at,
             **result,
         }
 
@@ -1004,7 +1116,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("analyze_volatility_regime failed symbol=%s", symbol)
             raise
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _src("/marketdata/v1/pricehistory"),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_zscore(
@@ -1041,7 +1158,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         if tail is not None and tail > 0 and "zscore" in result:
             result["datetime"] = result["datetime"][-tail:]
             result["zscore"] = result["zscore"][-tail:]
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _src("/marketdata/v1/pricehistory"),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_pair_spread(
@@ -1089,9 +1211,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             result["datetime"] = result["datetime"][-tail:]
             result["spread"] = result["spread"][-tail:]
             result["zscore"] = result["zscore"][-tail:]
-        result["symbols"] = [symbol_a, symbol_b]
-        result["fetched_at"] = fetched_at
-        return result
+        return {
+            "source": _src("/marketdata/v1/pricehistory"),
+            "fetched_at": fetched_at,
+            "symbols": [symbol_a, symbol_b],
+            **result,
+        }
 
     @mcp.tool()
     def analyze_session_ranges(
@@ -1196,4 +1321,9 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         if tail is not None and tail > 0 and "days" in result:
             result["days"] = result["days"][-tail:]
             result["n_days"] = len(result["days"])
-        return {"symbol": symbol, "fetched_at": fetched_at, **result}
+        return {
+            "source": _src("/marketdata/v1/pricehistory"),
+            "fetched_at": fetched_at,
+            "symbol": symbol,
+            **result,
+        }

@@ -22,6 +22,16 @@ from ...settings import TraiderSettings
 from . import analytics
 from .fred_client import FredClient
 
+_FRED_BASE = "https://api.stlouisfed.org/fred"
+
+
+def _src(path: str) -> str:
+    return f"{_FRED_BASE}{path}"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
 # Trading-relevant releases, grouped by what they move. Kept deliberately
 # small — a curated list is only useful if the ceiling is low. Users who
 # want more can call `get_release_schedule` with their own `release_ids`.
@@ -400,7 +410,16 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         )
 
         logger.info("get_release_schedule result count=%d", len(rows))
-        return {**base, "count": len(rows), "release_dates": rows}
+        source = (
+            _src("/release/dates") if release_ids else _src("/releases/dates")
+        )
+        return {
+            "source": source,
+            "fetched_at": _now_iso(),
+            **base,
+            "count": len(rows),
+            "release_dates": rows,
+        }
 
     @mcp.tool()
     def get_high_impact_calendar(
@@ -482,6 +501,8 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             len(rows), sorted(chosen.keys()),
         )
         return {
+            "source": _src("/release/dates"),
+            "fetched_at": _now_iso(),
             "realtime_start": realtime_start,
             "realtime_end": realtime_end,
             "categories": sorted(chosen.keys()),
@@ -512,8 +533,9 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_release_dates release_id=%d realtime=%s..%s",
             release_id, realtime_start, realtime_end,
         )
+        fetched_at = _now_iso()
         try:
-            return _get_client().release_dates(
+            payload = _get_client().release_dates(
                 release_id,
                 realtime_start=realtime_start,
                 realtime_end=realtime_end,
@@ -523,26 +545,43 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("get_release_dates failed release_id=%d", release_id)
             raise
+        return {
+            "source": _src("/release/dates"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def list_releases(limit: int | None = 200) -> dict[str, Any]:
         """All FRED releases, for discovering ``release_id`` values."""
         logger.info("list_releases limit=%s", limit)
+        fetched_at = _now_iso()
         try:
-            return _get_client().releases(limit=limit)
+            payload = _get_client().releases(limit=limit)
         except Exception:
             logger.exception("list_releases failed")
             raise
+        return {
+            "source": _src("/releases"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def get_release_info(release_id: int) -> dict[str, Any]:
         """Metadata for a single release (name, link, notes)."""
         logger.info("get_release_info release_id=%d", release_id)
+        fetched_at = _now_iso()
         try:
-            return _get_client().release(release_id)
+            payload = _get_client().release(release_id)
         except Exception:
             logger.exception("get_release_info failed release_id=%d", release_id)
             raise
+        return {
+            "source": _src("/release"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def get_release_series(
@@ -555,13 +594,19 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_release_series release_id=%d limit=%s order_by=%s",
             release_id, limit, order_by,
         )
+        fetched_at = _now_iso()
         try:
-            return _get_client().release_series(
+            payload = _get_client().release_series(
                 release_id, limit=limit, order_by=order_by,
             )
         except Exception:
             logger.exception("get_release_series failed release_id=%d", release_id)
             raise
+        return {
+            "source": _src("/release/series"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def search_series(
@@ -576,8 +621,9 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         ``DGS10``, ``"fed funds"`` → ``DFF`` / ``FEDFUNDS``.
         """
         logger.info("search_series text=%r limit=%s", search_text, limit)
+        fetched_at = _now_iso()
         try:
-            return _get_client().series_search(
+            payload = _get_client().series_search(
                 search_text,
                 limit=limit,
                 order_by=order_by,
@@ -586,16 +632,27 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         except Exception:
             logger.exception("search_series failed text=%r", search_text)
             raise
+        return {
+            "source": _src("/series/search"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def get_series_info(series_id: str) -> dict[str, Any]:
         """Series metadata (units, frequency, last-updated, seasonal adj)."""
         logger.info("get_series_info series_id=%s", series_id)
+        fetched_at = _now_iso()
         try:
-            return _get_client().series(series_id)
+            payload = _get_client().series(series_id)
         except Exception:
             logger.exception("get_series_info failed series_id=%s", series_id)
             raise
+        return {
+            "source": _src("/series"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def get_series(
@@ -625,6 +682,7 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "get_series series_id=%s start=%s end=%s limit=%s",
             series_id, observation_start, observation_end, limit,
         )
+        fetched_at = _now_iso()
         try:
             result = _get_client().series_observations(
                 series_id,
@@ -641,7 +699,11 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             raise
         obs = result.get("observations", [])
         logger.info("get_series result series_id=%s observations=%d", series_id, len(obs))
-        return result
+        return {
+            "source": _src("/series/observations"),
+            "fetched_at": fetched_at,
+            **result,
+        }
 
     @mcp.tool()
     def analyze_yield_curve(
@@ -674,13 +736,19 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "analyze_yield_curve observation_start=%s zscore_window=%d",
             observation_start, zscore_window,
         )
+        fetched_at = _now_iso()
         try:
-            return _yield_curve_payload(
+            payload = _yield_curve_payload(
                 _get_client(), observation_start, zscore_window,
             )
         except Exception:
             logger.exception("analyze_yield_curve failed")
             raise
+        return {
+            "source": _src("/series/observations"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def analyze_credit_spreads(
@@ -709,13 +777,19 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "analyze_credit_spreads observation_start=%s zscore_window=%d",
             observation_start, zscore_window,
         )
+        fetched_at = _now_iso()
         try:
-            return _credit_spreads_payload(
+            payload = _credit_spreads_payload(
                 _get_client(), observation_start, zscore_window,
             )
         except Exception:
             logger.exception("analyze_credit_spreads failed")
             raise
+        return {
+            "source": _src("/series/observations"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def analyze_breakevens(
@@ -750,14 +824,20 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "analyze_breakevens observation_start=%s target=%.2f±%.2f zscore_window=%d",
             observation_start, target, target_band, zscore_window,
         )
+        fetched_at = _now_iso()
         try:
-            return _breakevens_payload(
+            payload = _breakevens_payload(
                 _get_client(), observation_start, zscore_window,
                 target, target_band,
             )
         except Exception:
             logger.exception("analyze_breakevens failed")
             raise
+        return {
+            "source": _src("/series/observations"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def analyze_financial_conditions(
@@ -801,13 +881,19 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             "analyze_financial_conditions observation_start=%s zscore_window=%d",
             observation_start, zscore_window,
         )
+        fetched_at = _now_iso()
         try:
-            return _financial_conditions_payload(
+            payload = _financial_conditions_payload(
                 _get_client(), observation_start, zscore_window,
             )
         except Exception:
             logger.exception("analyze_financial_conditions failed")
             raise
+        return {
+            "source": _src("/series/observations"),
+            "fetched_at": fetched_at,
+            **payload,
+        }
 
     @mcp.tool()
     def analyze_macro_regime(
@@ -896,6 +982,8 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         ]
         as_of = max(component_as_ofs) if component_as_ofs else None
         return {
+            "source": _src("/series/observations"),
+            "fetched_at": _now_iso(),
             "as_of": as_of,
             "regime": regime,
             "component_labels": component_labels,

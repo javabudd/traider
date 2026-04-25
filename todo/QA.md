@@ -13,8 +13,8 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
 1. #5 (13F unit boundary) — only finding that materially corrupts numbers.
 2. #2, #3, #4, #6 — silent fallbacks; AGENTS.md treats these as the
    trust-breaking class of bug.
-3. #1 envelope rollout across `schwab` / `yahoo` / `news` / `fred`
-   (probably one PR each).
+3. ~~#1 envelope rollout across `schwab` / `yahoo` / `news` / `fred`~~
+   (resolved).
 4. Security tightening: #7, #8.
 5. Land `tests/` + CI; start with parser fixtures (Form 4 XML, 13F
    XML, FOMC HTML snapshot, Ken French CSV block) since those are
@@ -22,7 +22,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
 
 ## CRITICAL
 
-- [ ] **#1 — `source` / `fetched_at` envelope is inconsistently
+- [x] **#1 — `source` / `fetched_at` envelope is inconsistently
   applied.** DEVELOPING.md:255-257 makes it a hub convention;
   `factor`, `sec_edgar`, `earnings`, `estimates` honor it; most of
   `schwab`, `yahoo`, `news`, and `fred` don't. A `get_quote` or
@@ -37,6 +37,15 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     376).
   - `news/tools.py:83` — returns Massive's raw envelope only.
   - `fred/tools.py` — none of the @mcp.tool functions stamp it.
+  - **Resolved:** every `@mcp.tool` in `schwab`, `yahoo`, `news`,
+    and `fred` now stamps `source` (upstream URL) and `fetched_at`
+    (ISO-8601 UTC) at the top level of its response. Scalar /
+    list-returning tools (`get_quote`, `get_quotes`, `get_accounts`,
+    `get_account_numbers`, `get_transactions`, `get_orders`) were
+    rewrapped in dicts; the per-tool docstrings call out the new
+    shape. The `source` key in `analytics.rolling_zscore` output was
+    renamed to `series_source` to avoid colliding with the envelope
+    URL.
 
 - [ ] **#2 — Yahoo silent-fallback on `.info` fetch failure.**
   `yahoo/yahoo_client.py:488-490`. Exception during `_quote_payload`
