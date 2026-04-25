@@ -46,7 +46,8 @@ traider/
 │       ├── treasury/         # US Treasury Fiscal Data
 │       ├── news/             # Massive news API
 │       ├── earnings/         # Finnhub earnings calendar + surprises
-│       └── estimates/        # Finnhub analyst recommendation trends
+│       ├── estimates/        # Finnhub analyst recommendation trends
+│       └── eia/              # EIA energy data (petroleum, natgas, electricity)
 └── logs/                     # per-provider runtime logs
 ```
 
@@ -76,6 +77,7 @@ TRAIDER_PROVIDERS=schwab,fred,fed-calendar,sec-edgar,factor,treasury,news
 | `news`         | Massive news + sentiment          | `MASSIVE_API_KEY` (free tier)   |
 | `earnings`     | Finnhub earnings calendar + surprises | `FINNHUB_API_KEY` (free tier) |
 | `estimates`    | Finnhub analyst recommendation trends | `FINNHUB_API_KEY` (free tier, shared with earnings) |
+| `eia`          | EIA energy data (petroleum, natgas, electricity) | `EIA_API_KEY` (free) |
 
 Rules:
 

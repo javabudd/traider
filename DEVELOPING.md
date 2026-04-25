@@ -26,6 +26,7 @@ touching the code.
   - [news](#news)
   - [earnings](#earnings)
   - [estimates](#estimates)
+  - [eia](#eia)
 
 ---
 
@@ -105,6 +106,10 @@ src/traider/
       __init__.py
       tools.py
       finnhub_client.py    # httpx wrapper around Finnhub /stock/recommendation
+    eia/
+      __init__.py
+      tools.py
+      eia_client.py        # httpx wrapper around api.eia.gov/v2
 ```
 
 Each provider is **self-contained under its directory** — imports
@@ -1049,3 +1054,84 @@ provider. One key, both providers. Do not log it.
 - Don't merge this provider into ``earnings``. Separate providers
   keep the load costs and failure modes independent — a 403 on one
   endpoint shouldn't poison the other.
+
+### eia
+
+**What it is.** Read-only bridge to the
+[US Energy Information Administration v2 API](https://www.eia.gov/opendata/).
+Three curated routes — Weekly Petroleum Status Report ending stocks,
+EIA-912 weekly natural-gas storage, monthly Electric Power
+Operational Data — plus a generic ``get_eia_series`` escape hatch
+for any other route on the EIA Open Data Browser.
+
+**Secrets.** ``EIA_API_KEY`` (register at
+<https://www.eia.gov/opendata/register.php>). Sent as the
+``api_key`` query param on every request. Do not log it and do not
+fall through to a key-less request — EIA returns 403 without it.
+
+**EIA v2 query dialect.** All routes share the same shape:
+
+- ``frequency`` — ``hourly`` / ``daily`` / ``weekly`` / ``monthly`` /
+  ``quarterly`` / ``annual``. Each route advertises which it supports
+  on its metadata page (URL without ``/data/``).
+- ``data[]`` — column projection. Most routes expose ``value`` as the
+  numeric series; some use named columns (``generation``,
+  ``consumption``).
+- ``facets[<name>][]`` — categorical filters. Available facets vary
+  per route. The metadata endpoint lists them.
+- ``start`` / ``end`` — ISO bounds on ``period``. Granularity must
+  match the route's frequency (``YYYY-MM-DD`` for weekly,
+  ``YYYY-MM`` for monthly, ``YYYY`` for annual).
+- ``sort[0][column]`` / ``sort[0][direction]`` — sort key.
+- ``offset`` / ``length`` — paging. Max ``length`` is 5000.
+
+The client serializes facets and sort fields into the bracketed
+query-string format EIA expects (``facets[series][]=WCESTUS1``,
+``sort[0][column]=period``); httpx handles the list-value expansion
+naturally.
+
+**Things that will bite you.**
+
+- **Rate limit is real.** EIA documents 5,000 req/hour per key. A
+  fan-out across many series with small ``length`` will trip it
+  faster than expected — prefer one larger query over many small ones.
+  ``EiaError`` propagates 429s; do not retry in a loop.
+- **Series IDs are stable but typo-sensitive.** WPSR series like
+  ``WCESTUS1`` (US ex-SPR crude) and storage series like
+  ``NW2_EPG0_SWO_R48_BCF`` (Lower 48 working gas) have rigid naming
+  conventions. EIA returns 200 with empty ``response.data`` for an
+  unknown series, not a 404 — surface "no rows" without retrying.
+- **Units vary by route.** Petroleum stocks come back in thousand
+  barrels (``MBBL``); gas storage in billion cubic feet (``BCF``);
+  electricity generation in thousand megawatt-hours. Always read the
+  ``units`` field on each row before quoting a number.
+- **`period` granularity matches frequency.** A monthly route with
+  ``start=2026-04-15`` is rejected; pass ``start=2026-04`` for
+  monthly, ``start=2026`` for annual.
+- **`response` envelope is real.** EIA wraps results under
+  ``{"response": {"data": [...], "total": "...", ...}, "request":
+  {...}, "apiVersion": "..."}``. Don't strip it on the way out —
+  ``response.total`` is what callers need for paging decisions.
+- **The Open Data Browser is the source of truth for routes and
+  facet schemas.** When users ask for something the curated tools
+  don't cover (retail gas prices, hourly grid demand, crude
+  imports), point ``get_eia_series`` at the right route — but verify
+  facet names against
+  <https://www.eia.gov/opendata/browser/> first. Guessing facet
+  names returns 200 with empty data, not an error.
+
+**What not to do.**
+
+- Don't add an OAuth flow — EIA is a static API key.
+- Don't retry 429s or 403s internally. Surface them so the user
+  sees the throttle / auth issue.
+- Don't cache responses silently. Inventory and storage prints are
+  the whole point of the tool; a stale cache hit feeds the wrong
+  number into a recommendation.
+- Don't reshape EIA's JSON. The model reads ``response.data[]``
+  directly; flattening to a "nicer" schema hides the ``total`` /
+  ``frequency`` / ``description`` paging metadata.
+- Don't expose a ``query`` raw passthrough as an MCP tool. The
+  ``get_eia_series`` tool already takes a ``route`` parameter and
+  enforces the bracketed-param serialization; a second passthrough
+  with no validation just invites invalid requests.

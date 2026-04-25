@@ -92,10 +92,15 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` landed.
   provider (H.15: DGS1MO…DGS30, DFII real yields) — not duplicated
   here. See
   [src/traider/providers/treasury/README.md](../src/traider/providers/treasury/README.md).
-- [ ] **eia** — US Energy Information Administration: weekly
-  petroleum status, natural gas storage, electricity. Critical for
-  energy-name trades. Primary source: `api.eia.gov/v2`. Auth:
-  mandatory `EIA_API_KEY` (free).
+- [x] **eia** — shipped. US Energy Information Administration v2
+  API. Three curated routes: Weekly Petroleum Status Report ending
+  stocks (`/petroleum/stoc/wstk/`), EIA-912 weekly natural gas
+  storage (`/natural-gas/stor/wkly/`), monthly Electric Power
+  Operational Data (`/electricity/electric-power-operational-data/`),
+  plus a generic `get_eia_series` escape hatch for any other v2
+  route. Primary source: `api.eia.gov/v2`. Auth: `EIA_API_KEY` as
+  query param (free, 5000 req/hour). See
+  [src/traider/providers/eia/README.md](../src/traider/providers/eia/README.md).
 - [ ] **global-cb** — ECB (`data.ecb.europa.eu`, the new Data
   Portal that superseded SDW), BoJ, BoE statistical releases. Per
   hub rule: land one central bank at a time, each as its own module
