@@ -247,6 +247,60 @@ Stdio variant: `"command": "traider", "args": ["--transport", "stdio"]`.
 Gemini CLI does not auto-load `.env` — export vars in your shell or
 list them under `"env"` in the server entry.
 
+## Example questions
+
+Once the server is wired in and `AGENTS.md` is loaded, simple
+trading prompts fan out into multi-tool analyses instead of
+collapsing to a single quote call. A few representative shapes:
+
+### *"What's my portfolio look like today?"*
+
+Pulls your accounts via the brokerage tool, then weighs the
+dimensions an analyst would: per-position day P&L (with the
+open-vs-carryover field check from `AGENTS.md`, so a same-day open
+isn't mis-cited as a P&L swing), concentration, correlation
+structure across holdings, factor / sector exposure of the book,
+and any catalysts (earnings, FOMC, macro releases) hitting your
+names this week. Numbers come back with tool + timestamp; nothing
+is recalled from training data.
+
+### *"I'm bearish on SPY — what trade?"*
+
+Asks the framing inputs the tools can't supply first: how bearish
+(mild pullback vs. crash hedge), over what horizon, and whether
+this is a hedge against existing longs or a standalone directional
+bet. Then pulls SPY's price action, IV regime and term structure,
+and the week's macro / FOMC catalysts; sketches candidate
+structures (short delta, put debit spread, put calendar, collar
+against a long book…) with their R/R; and once specific levels and
+size are on the table, loads `RISK.md` and `OPTIONS.md` for the
+sizing math and chain-quality checks before naming a strike.
+
+### *"Should I buy NVDA here?"*
+
+Decomposes instead of one-shotting a quote: price action and
+volatility regime, technicals, fundamentals and valuation vs.
+peers, recent filings and insider activity, factor exposure, news
+flow, upcoming catalysts. If you already hold NVDA in a taxable
+account and the question is really *trim or add*, holding period
+and recent trade history get pulled too — wash-sale windows and
+STCG/LTCG boundaries are surfaced before any sell recommendation.
+Conflicts (TA bullish, fundamentals stretched; or vice versa) are
+named, not silently resolved.
+
+### *"What's the macro setup this week?"*
+
+Pulls the FRED release calendar and FOMC calendar for the window,
+the current yield-curve level and shape, recent Treasury auction
+demand and TGA cash, and the cross-asset regime (equity / bond /
+FX / commodity) via factor returns. Names what's high-impact,
+what's already priced in, and what would mark a regime shift —
+without making calls on releases that haven't happened.
+
+A literal one-tool-call answer to any of these is a failure mode,
+not the goal — the analyst framing in `AGENTS.md` is what turns
+*"is SPY a buy?"* into the multi-dimension read above.
+
 ## What traider will and won't do
 
 - **Will.** Fetch, align, and compute on market data. Explain what
