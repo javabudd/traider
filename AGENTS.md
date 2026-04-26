@@ -145,7 +145,7 @@ depends on what's loaded in this session.
 
 | Question shape | Dimensions to analyze |
 |---|---|
-| *"Should I buy / sell / hold X?"* | current price and recent action; technical signals (trend, support/resistance, momentum, volatility regime); fundamentals and valuation; recent filings and insider activity; factor and sector/industry exposure; news flow and sentiment; upcoming catalysts (earnings, macro releases, FOMC); existing position and correlation to the user's book; **for a sell in a taxable account**, holding period (STCG vs LTCG boundary) and recent trade history (wash-sale exposure on recent losses or pending rebuys) |
+| *"Should I buy / sell / hold X?"* | current price and recent action; technical signals across multiple categories (trend, momentum, volatility regime, support/resistance levels, trend-vs-mean-revert regime — see *Reaching for technical analysis* below); fundamentals and valuation; recent filings and insider activity; factor and sector/industry exposure; news flow and sentiment; upcoming catalysts (earnings, macro releases, FOMC); existing position and correlation to the user's book; **for a sell in a taxable account**, holding period (STCG vs LTCG boundary) and recent trade history (wash-sale exposure on recent losses or pending rebuys) |
 | *"How is my portfolio doing?"* | holdings and current values; per-position returns and volatility; concentration and correlation structure; drawdown and benchmark comparison; factor exposure of the book; upcoming catalysts across holdings |
 | *"What's the macro setup right now?"* | upcoming high-impact data releases; next FOMC meeting and recent Fed commentary; yield curve level and shape; recent Treasury auction demand and TGA cash; equity / bond / FX / commodity regime |
 | *"Explain this move in X."* | price and volume around the move; filings in the window; headlines and sentiment in the window; sector and factor returns same window; macro releases that day; peer and correlated-asset moves |
@@ -159,6 +159,67 @@ fill it from training data.
 
 If the question doesn't fit any shape cleanly, that's a cue to ask
 a clarifying question before pulling data — not to invent a framing.
+
+## Reaching for technical analysis
+
+A loaded `traider` MCP almost certainly exposes more TA than any
+other category — both a generic TA-Lib indicator runner (so any
+named function: RSI, MACD, BBANDS, ADX, STOCH, EMA, …) and a set
+of dedicated analytics tools. The common failure mode is *picking
+one indicator and stopping*. A single RSI reading or moving-average
+cross is rarely a recommendation; it's one input to a fan-out
+across distinct TA dimensions.
+
+Treat these as separate dimensions, not interchangeable views on
+the same question:
+
+- **Trend** — direction and strength (MA alignment, ADX, slope of
+  price vs a longer-window MA). Whether the higher-timeframe wind
+  is at the user's back.
+- **Momentum** — RSI, MACD, stochastic. Useful for *"is this
+  overextended in the short term."*
+- **Volatility regime** — current realized vol vs its own trailing
+  distribution (z-scored and percentile-ranked), ATR level,
+  Bollinger-band width, choice of estimator (close-to-close,
+  Parkinson, Garman-Klass, Rogers-Satchell). Sets the size of
+  *normal* moves so you can flag abnormal ones, and feeds stop
+  placement.
+- **Support / resistance levels** — recent swing highs and lows,
+  classic / Fibonacci / Camarilla pivot points, anchored VWAP from
+  a notable event date (gap day, earnings, FOMC), Donchian channel
+  boundaries. Cite the *level itself*, not "near resistance" — the
+  user needs a price.
+- **Regime classifier** — trending vs mean-reverting vs random walk
+  via Hurst exponent and variance ratio. Biases strategy choice;
+  don't suggest a mean-revert entry in a trending tape, or a
+  trend-follow in a chop regime, without flagging the tension.
+- **Session structure** — Asia / London / New York range behavior,
+  liquidity-sweep flags, tight-Asia detection. Relevant when the
+  user is timing an entry within the day, not for swing-horizon
+  questions.
+- **ATR-based stops and targets** — converts the volatility read
+  into concrete entry / stop / target prices and an R/R ratio.
+  Bridges TA into the trade-prep work in `RISK.md`.
+- **Pair / spread analytics** — log-price spread with z-score and
+  AR(1) half-life, rolling correlation, beta. Reach for these on
+  relative-value questions (*"is GLD cheap vs SLV right now?",
+  "is this hedge still doing what we sized it for?"*).
+
+Don't substitute training-data pattern recognition (*"looks like a
+head-and-shoulders," "this is a bull flag"*) for a computed
+indicator. If you claim a chart pattern, point to the swing pivots
+or session structure that supports it. And every RSI / ATR / VWAP
+/ beta / Hurst value you cite must come from a tool call this
+session — never from training-data recall or a back-of-envelope
+estimate.
+
+Match indicator parameters to the bar size and the question's
+horizon. Daily-bar conventions (RSI(14), 20-day BB, ATR(14)) don't
+transfer cleanly to 5-minute bars, and a 252-bar lookback on
+hourly data spans only a few weeks. When citing a TA value, name
+the parameter and the bar set: *"RSI(14) daily = 71.3 over the
+last 200 bars (yahoo `get_price_history` 1y daily)"* — not a bare
+*"RSI is 71."*
 
 ## How to present findings
 
