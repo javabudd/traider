@@ -30,6 +30,7 @@ touching the code.
   - [estimates](#estimates)
   - [eia](#eia)
   - [cftc](#cftc)
+  - [intent](#intent)
 
 ---
 
@@ -117,6 +118,10 @@ src/traider/
       __init__.py
       tools.py
       cftc_client.py       # httpx wrapper around publicreporting.cftc.gov (Socrata)
+    intent/
+      __init__.py
+      tools.py
+      store.py             # SQLite-backed local trade-intent journal (no external writes)
 ```
 
 Each provider is **self-contained under its directory** — imports
@@ -1354,3 +1359,90 @@ for ``get_cftc_dataset`` with raw SoQL.
   unified row. They're separate snapshots and the user needs to
   know which they're seeing; the ``flavor`` field on the response
   envelope is load-bearing.
+
+### intent
+
+**What it is.** A local journal of trade *intents* — symbol, side,
+quantity, target price, fill price, stop / target levels, the
+thesis, catalysts, tags, and a running notes field — keyed by a
+generated UUID. The model uses it to capture the *why* behind a
+position when the trade is being designed (or just after fill) and
+to recall that reasoning in future sessions when looking at the
+current book.
+
+**Storage.** SQLite, single table ``trade_intents``, one file at
+``~/.traider/intents.db`` by default (override with
+``TRAIDER_INTENT_DB``). Lives outside the repo so it can't be
+accidentally committed. ``stdlib`` only — no extra dependency
+beyond ``sqlite3``.
+
+**Tools.**
+
+- ``record_trade_intent`` — create. Required: ``symbol``, ``side``,
+  ``quantity``, ``thesis``. Everything else (levels, catalysts,
+  option details, tags, parent_intent_id) is optional but encouraged.
+- ``update_trade_intent`` — amend. Used post-fill to record actual
+  ``fill_price``, on stop trails / target raises, on status changes,
+  and via ``append_note`` to journal updates without overwriting the
+  original thesis.
+- ``get_trade_intent`` / ``list_trade_intents`` — read. ``list``
+  filters on symbol, status, account_id, instrument_type, and
+  created_at range; returns newest first.
+- ``delete_trade_intent`` — explicit hard delete. Requires
+  ``confirm=True`` and is documented as "almost always the wrong
+  move; prefer ``status='canceled'``" so the historical thesis
+  survives.
+
+**The read-only constraint.** This is the *only* provider in
+traider that performs writes, and it's important to be precise
+about why that's still consistent with the AGENTS.md rule:
+
+- The rule is **no writes to external systems** — no order entry,
+  no alert creation, no broker pushes. ``intent`` writes only to a
+  local file the user already owns.
+- Tool docstrings are explicit that recording an intent does NOT
+  place an order. The model is supposed to reach for this when the
+  user is *planning* a trade or *journaling* one they just placed
+  themselves; it is not a brokerage write path.
+- If you ever extend this provider, that constraint is the line.
+  Syncing to a brokerage, posting to a webhook, writing to a shared
+  service — none of those are extensions, they're a different
+  provider that violates the read-only invariant.
+
+**Schema notes.**
+
+- ``tags`` and ``option_details`` are stored as JSON-encoded TEXT
+  columns. Don't promote them to their own tables — the schema
+  needs to stay loose so unusual structures (custom multi-leg
+  spreads, ratios, calendars) can be captured without a migration
+  every time the user trades a new shape.
+- ``parent_intent_id`` is a soft self-reference (no FK constraint)
+  used to link adds, scales, rolls, and option legs to a parent
+  intent. Soft so legacy or partial records don't fail to insert.
+- ``account_id`` is whatever string the user wants — typically the
+  Schwab ``hashValue``, but it's intentionally untyped so other
+  brokerages or paper accounts work too.
+- ``status`` is enumerated in ``store.VALID_STATUSES``: ``planned``
+  / ``open`` / ``partially_filled`` / ``closed`` / ``canceled``.
+  Add to that frozenset and ``update_trade_intent`` validates the
+  new value automatically.
+- ``notes`` is append-only via ``append_note`` (timestamps each
+  line). Direct overwrites are still possible by passing ``notes``
+  to ``update``, but the docstring nudges callers to ``append_note``
+  so the journal grows over time.
+
+**What not to do.**
+
+- Don't add a ``submit_to_broker`` tool, a webhook, or any sync to
+  an external service. The local-only invariant is what keeps this
+  provider compatible with the read-only rule.
+- Don't pre-compute P&L from intent records — pull live quotes via
+  the market-data backend at the point of use. Stale snapshot
+  numbers in the journal would invite the same trust-breaking
+  citation errors the analyst frame is trying to prevent.
+- Don't import from ``schwab`` or any other provider here. Intent
+  is provider-agnostic; correlation with positions happens at the
+  analyst layer (cross-tool reasoning), not in the schema.
+- Don't ship a destructive migration. SQLite ``ALTER TABLE`` is
+  fine for adding columns; if a breaking change is ever needed,
+  ship a new column and write a migration that reads the old one.

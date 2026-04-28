@@ -51,6 +51,7 @@ entitlement.
 | `estimates`    | Finnhub analyst recommendation trends | `FINNHUB_API_KEY` (free tier, shared with earnings) |
 | `eia`          | EIA energy data (petroleum, natgas, electricity) | `EIA_API_KEY` (free) |
 | `cftc`         | CFTC Commitments of Traders (weekly positioning) | None (optional `CFTC_APP_TOKEN`) |
+| `intent`       | Local trade-intent journal (why each share/contract exists) | None (local SQLite, optional `TRAIDER_INTENT_DB`) |
 
 Rules:
 
@@ -334,7 +335,8 @@ traider/
 │       ├── earnings/         # Finnhub earnings calendar + surprises
 │       ├── estimates/        # Finnhub analyst recommendation trends
 │       ├── eia/              # EIA energy data (petroleum, natgas, electricity)
-│       └── cftc/             # CFTC Commitments of Traders (weekly positioning)
+│       ├── cftc/             # CFTC Commitments of Traders (weekly positioning)
+│       └── intent/           # Local trade-intent journal (SQLite, no external writes)
 └── logs/                     # per-provider runtime logs
 ```
 
