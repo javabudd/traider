@@ -147,20 +147,22 @@ class IntentStore:
             else:
                 sets[key] = value
 
-        if not sets:
+        append = fields.get("append_note")
+        if not sets and not append:
             return existing
 
-        sets["updated_at"] = _now_iso()
-        assignments = ",".join(f"{k}=:{k}" for k in sets)
-        sets["id"] = intent_id
-        with self._lock:
-            self._conn.execute(
-                f"UPDATE trade_intents SET {assignments} WHERE id=:id", sets
-            )
+        if sets:
+            sets["updated_at"] = _now_iso()
+            assignments = ",".join(f"{k}=:{k}" for k in sets)
+            sets["id"] = intent_id
+            with self._lock:
+                self._conn.execute(
+                    f"UPDATE trade_intents SET {assignments} WHERE id=:id", sets
+                )
 
-        # Append-only journal for `notes`: if caller passed `append_note`,
-        # tack it onto the existing notes with a UTC timestamp.
-        append = fields.get("append_note")
+        # Append-only journal for `notes`. Independent of the column
+        # update above so an append-only call (no other fields passed)
+        # still persists.
         if append:
             stamp = _now_iso()
             line = f"[{stamp}] {append}"
