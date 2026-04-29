@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -385,10 +386,18 @@ class SchwabClient:
                 ``MEMORANDUM``, ``MARGIN_CALL``, ``MONEY_MARKET``,
                 ``SMA_ADJUSTMENT``.
         """
-        params: dict[str, Any] = {
-            "startDate": _normalize_iso_datetime(start_date, end_of_day=False),
-            "endDate": _normalize_iso_datetime(end_date, end_of_day=True),
-        }
+        start_iso = _normalize_iso_datetime(start_date, end_of_day=False)
+        end_iso = _normalize_iso_datetime(end_date, end_of_day=True)
+        span = datetime.fromisoformat(end_iso.replace("Z", "+00:00")) - datetime.fromisoformat(
+            start_iso.replace("Z", "+00:00")
+        )
+        if span > timedelta(days=365):
+            raise ValueError(
+                f"Schwab transactions window is capped at 365 days; got "
+                f"{span.days}d between start_date={start_date!r} and "
+                f"end_date={end_date!r}. Narrow the range and retry."
+            )
+        params: dict[str, Any] = {"startDate": start_iso, "endDate": end_iso}
         if symbol is not None:
             params["symbol"] = symbol
         if types is not None:
@@ -449,13 +458,19 @@ class SchwabClient:
                 ``PENDING_ACKNOWLEDGEMENT``, ``PENDING_RECALL``,
                 ``UNKNOWN``.
         """
+        from_iso = _normalize_iso_datetime(from_entered_time, end_of_day=False)
+        to_iso = _normalize_iso_datetime(to_entered_time, end_of_day=True)
+        from_dt = datetime.fromisoformat(from_iso.replace("Z", "+00:00"))
+        lookback = datetime.now(timezone.utc) - from_dt
+        if lookback > timedelta(days=60):
+            raise ValueError(
+                f"Schwab orders lookback is capped at 60 days; "
+                f"from_entered_time={from_entered_time!r} is {lookback.days}d "
+                f"before now. Move it forward and retry."
+            )
         params: dict[str, Any] = {
-            "fromEnteredTime": _normalize_iso_datetime(
-                from_entered_time, end_of_day=False
-            ),
-            "toEnteredTime": _normalize_iso_datetime(
-                to_entered_time, end_of_day=True
-            ),
+            "fromEnteredTime": from_iso,
+            "toEnteredTime": to_iso,
         }
         if max_results is not None:
             params["maxResults"] = max_results
