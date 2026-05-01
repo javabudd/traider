@@ -1,0 +1,41 @@
+name: holding-period-boundary
+version: 1
+kind: tax-discipline
+applies_to_class: [leadership, thematic, speculative, index-core, diversifier]
+applies_to_account_type: [taxable]
+governs_decisions: [trim, close, exit]
+
+parameters:
+  stcg_to_ltcg_threshold_days: 365
+  flag_window_days: 30                  # alert when within N days of crossing
+  defer_recommended_when_within: 14     # suggest defer if trim isn't forced
+
+rationale: |
+  If a lot is within days of crossing from short-term (≤ 1 year)
+  to long-term (> 1 year), flag the tax-rate difference before
+  recommending a sell. The delta is often larger than the move
+  the user is trying to capture.
+
+  STCG is taxed at ordinary income rates (federal: up to 37%);
+  LTCG at preferential rates (0/15/20% federal). On a sized
+  position the difference between selling on day 364 vs day 366
+  can be a 5-figure tax delta.
+
+  When a discretionary trim is contemplated within 14 days of
+  the LTCG boundary on the lots being sourced, suggest deferring
+  if there isn't a forcing constraint (cap breach, thesis-stop,
+  hard catalyst). When the trim IS forced, surface the cost rather
+  than assume it.
+
+  This rule requires lot-level data (acquisition date per lot,
+  not just lifetime weighted average). The intent's params should
+  carry the lot table; if it doesn't, recommend a transactions
+  pull before sizing the trim.
+
+  Tax tail does not wag the risk dog. Cap-forced or thesis-stop
+  trims execute regardless; this rule informs *discretionary*
+  trims only.
+
+related_rules:
+  - wash-sale-window
+  - lot-method-verification

@@ -37,8 +37,11 @@ from mcp.server.fastmcp import FastMCP
 
 from ...logging_utils import attach_provider_logger
 from ...settings import TraiderSettings
+from . import rules as _rules_mod
 from .store import (
+    VALID_CLASSES,
     VALID_INSTRUMENTS,
+    VALID_LIFECYCLES,
     VALID_SIDES,
     VALID_STATUSES,
     IntentStore,
@@ -57,6 +60,83 @@ def _get_store() -> IntentStore:
         atexit.register(_store.close)
         logger.info("intent store ready path=%s", _store.db_path)
     return _store
+
+
+def _resolve_rule_refs(
+    refs: list[str] | list[dict[str, Any]] | None,
+    *,
+    intent_class: str | None,
+    intent_account_type: str | None,
+    intent_params: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Resolve rule_refs from a list of names (or pre-built dicts) to the
+    canonical ``[{rule, version, content_hash_at_fill}]`` shape, capturing
+    the current merged rule's version + hash at the moment of recording.
+
+    Validates:
+      - every rule name resolves in the index,
+      - the intent's class is in each rule's applies_to_class,
+      - the intent's account_type (if given) matches the rule's
+        applies_to_account_type (if the rule restricts it),
+      - the intent's params include every key listed in each rule's
+        requires_intent_params.
+
+    Raises ValueError on any failure with a message that names the rule
+    and the specific check that failed.
+    """
+    if not refs:
+        return []
+    index = _rules_mod.get_index()
+    out: list[dict[str, Any]] = []
+    intent_params = intent_params or {}
+    for entry in refs:
+        if isinstance(entry, str):
+            name = entry
+            stored_version: int | None = None
+            stored_hash: str | None = None
+        elif isinstance(entry, dict):
+            name = entry.get("rule")  # type: ignore[assignment]
+            stored_version = entry.get("version")
+            stored_hash = entry.get("content_hash_at_fill")
+        else:
+            raise ValueError(
+                f"rule_refs entry must be str or dict; got {type(entry).__name__}"
+            )
+        if not name:
+            raise ValueError("rule_refs entry missing rule name")
+        rule = index.get(name)
+        if rule is None:
+            raise ValueError(
+                f"rule {name!r} does not resolve to a rule file in the rules index"
+            )
+        if intent_class and intent_class not in rule.applies_to_class:
+            raise ValueError(
+                f"intent class {intent_class!r} not in rule {name!r} "
+                f"applies_to_class={list(rule.applies_to_class)}"
+            )
+        if (
+            intent_account_type
+            and rule.applies_to_account_type
+            and intent_account_type not in rule.applies_to_account_type
+        ):
+            raise ValueError(
+                f"intent account_type {intent_account_type!r} not in rule "
+                f"{name!r} applies_to_account_type={list(rule.applies_to_account_type)}"
+            )
+        missing = [
+            p for p in rule.requires_intent_params if p not in intent_params
+        ]
+        if missing:
+            raise ValueError(
+                f"intent params missing keys required by rule {name!r}: "
+                f"{missing}"
+            )
+        out.append({
+            "rule": name,
+            "version": stored_version if stored_version is not None else rule.version,
+            "content_hash_at_fill": stored_hash or rule.content_hash,
+        })
+    return out
 
 
 def register(mcp: FastMCP, settings: TraiderSettings) -> None:
@@ -82,6 +162,15 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         account_id: str | None = None,
         external_order_id: str | None = None,
         notes: str | None = None,
+        # v0.5 structured framework references and per-position payload.
+        # See rules/README.md for the rule schema.
+        class_: str | None = None,
+        lifecycle: str | None = None,
+        sleeve_id: str | None = None,
+        rule_refs: list[str] | list[dict[str, Any]] | None = None,
+        params: dict[str, Any] | None = None,
+        catalysts_structured: list[dict[str, Any]] | None = None,
+        account_type: str | None = None,
     ) -> dict[str, Any]:
         """Save a new trade-intent record to the local intent journal.
 
@@ -154,10 +243,31 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             raise ValueError(f"quantity must be > 0; got {quantity}")
         if not thesis or not thesis.strip():
             raise ValueError("thesis is required — record the *why* of the trade")
+        if class_ is not None and class_ not in VALID_CLASSES:
+            raise ValueError(
+                f"class must be one of {sorted(VALID_CLASSES)}; got {class_!r}"
+            )
+        if lifecycle is not None and lifecycle not in VALID_LIFECYCLES:
+            raise ValueError(
+                f"lifecycle must be one of {sorted(VALID_LIFECYCLES)}; "
+                f"got {lifecycle!r}"
+            )
+
+        # Resolve rule_refs (validates names, class fit, account-type fit,
+        # required intent params; captures version + content hash at fill).
+        resolved_refs = _resolve_rule_refs(
+            rule_refs,
+            intent_class=class_,
+            intent_account_type=account_type,
+            intent_params=params,
+        )
 
         logger.info(
-            "record_trade_intent symbol=%s side=%s qty=%s status=%s instrument=%s",
+            "record_trade_intent symbol=%s side=%s qty=%s status=%s "
+            "instrument=%s class=%s lifecycle=%s rules=%s",
             symbol, side, quantity, status, instrument_type,
+            class_, lifecycle,
+            [r["rule"] for r in resolved_refs] if resolved_refs else None,
         )
         try:
             return _get_store().insert(
@@ -179,6 +289,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 account_id=account_id,
                 external_order_id=external_order_id,
                 notes=notes,
+                class_=class_,
+                lifecycle=lifecycle,
+                sleeve_id=sleeve_id,
+                rule_refs=resolved_refs or None,
+                params=params,
+                catalysts_structured=catalysts_structured,
             )
         except Exception:
             logger.exception("record_trade_intent failed")
@@ -200,6 +316,14 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         option_details: dict[str, Any] | None = None,
         external_order_id: str | None = None,
         append_note: str | None = None,
+        # v0.5 structured fields (see record_trade_intent for semantics).
+        class_: str | None = None,
+        lifecycle: str | None = None,
+        sleeve_id: str | None = None,
+        rule_refs: list[str] | list[dict[str, Any]] | None = None,
+        params: dict[str, Any] | None = None,
+        catalysts_structured: list[dict[str, Any]] | None = None,
+        account_type: str | None = None,
     ) -> dict[str, Any]:
         """Amend an existing intent record (post-fill, on an exit, etc.).
 
@@ -237,10 +361,34 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 side=next(iter(VALID_SIDES)),
                 status=status,
             )
+        if class_ is not None and class_ not in VALID_CLASSES:
+            raise ValueError(
+                f"class must be one of {sorted(VALID_CLASSES)}; got {class_!r}"
+            )
+        if lifecycle is not None and lifecycle not in VALID_LIFECYCLES:
+            raise ValueError(
+                f"lifecycle must be one of {sorted(VALID_LIFECYCLES)}; "
+                f"got {lifecycle!r}"
+            )
+
+        # If new rule_refs were passed, re-resolve and re-validate against
+        # the intent's effective class/account/params (existing values
+        # used as fallback when not being updated this call).
+        resolved_refs: list[dict[str, Any]] | None = None
+        if rule_refs is not None:
+            existing = _get_store().get(intent_id) or {}
+            effective_class = class_ or existing.get("class")
+            effective_params = params if params is not None else existing.get("params")
+            resolved_refs = _resolve_rule_refs(
+                rule_refs,
+                intent_class=effective_class,
+                intent_account_type=account_type,
+                intent_params=effective_params,
+            )
 
         logger.info(
-            "update_trade_intent id=%s status=%s fill=%s",
-            intent_id, status, fill_price,
+            "update_trade_intent id=%s status=%s fill=%s class=%s lifecycle=%s",
+            intent_id, status, fill_price, class_, lifecycle,
         )
         try:
             updated = _get_store().update(
@@ -258,6 +406,12 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 option_details=option_details,
                 external_order_id=external_order_id,
                 append_note=append_note,
+                class_=class_,
+                lifecycle=lifecycle,
+                sleeve_id=sleeve_id,
+                rule_refs=resolved_refs,
+                params=params,
+                catalysts_structured=catalysts_structured,
             )
         except Exception:
             logger.exception("update_trade_intent failed id=%s", intent_id)
@@ -287,6 +441,10 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
         instrument_type: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        class_: str | None = None,
+        lifecycle: str | None = None,
+        sleeve_id: str | None = None,
+        rule_name: str | None = None,
         limit: int = 100,
     ) -> dict[str, Any]:
         """List trade intents, newest first, filtered by the given keys.
@@ -348,6 +506,10 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
                 instrument_type=instrument_type,
                 since=since,
                 until=until,
+                class_=class_,
+                lifecycle=lifecycle,
+                sleeve_id=sleeve_id,
+                rule_name=rule_name,
                 limit=limit,
             )
         except Exception:
@@ -384,3 +546,188 @@ def register(mcp: FastMCP, settings: TraiderSettings) -> None:
             logger.exception("delete_trade_intent failed id=%s", intent_id)
             raise
         return {"deleted": removed, "id": intent_id}
+
+    # ------------------------------------------------------------------
+    # Rules surface
+
+    @mcp.tool()
+    def list_rules(
+        applies_to_class: str | None = None,
+        governs_decision: str | None = None,
+        kind: str | None = None,
+    ) -> dict[str, Any]:
+        """List framework rules from ``rules/`` (with ``rules.local/`` overrides).
+
+        Returns lightweight summaries — call ``get_rule(name)`` for the
+        full body. Use this to discover which rules apply to a position
+        class or which rules govern a particular decision (e.g. trim,
+        monetize, hold-through-event).
+
+        Args:
+            applies_to_class: Filter to rules that govern this position
+                class (``leadership`` / ``thematic`` / ``speculative``
+                / ``hedge`` / ``dry-powder`` / ``diversifier`` /
+                ``index-core``).
+            governs_decision: Filter to rules that fire on this
+                decision type (``add`` / ``trim`` / ``open`` / ``exit``
+                / ``monetize`` / ``roll`` / ``rotate`` / ``rebalance``
+                / ``portfolio-check`` / ``hold-through-event`` / etc.).
+            kind: Filter to rules of one kind (``concentration-cap``,
+                ``lifecycle``, ``hedge-mgmt``, ``tax-discipline``,
+                ``sizing``).
+
+        Returns:
+            ``{"count": N, "rules": [...]}`` where each entry has
+            ``name``, ``version``, ``kind``, ``applies_to_class``,
+            ``governs_decisions``, ``summary`` (first line of
+            rationale), ``content_hash``, ``overridden`` (bool).
+        """
+        try:
+            index = _rules_mod.get_index()
+            matches = index.filter(
+                applies_to_class=applies_to_class,
+                governs_decision=governs_decision,
+                kind=kind,
+            )
+        except Exception:
+            logger.exception("list_rules failed")
+            raise
+        return {
+            "count": len(matches),
+            "rules": [r.summary() for r in matches],
+        }
+
+    @mcp.tool()
+    def get_rule(name: str, include_rationale: bool = True) -> dict[str, Any]:
+        """Fetch one rule by name with its full body.
+
+        Returns the merged-in-place form (seed + overlay) — the same
+        shape ``record_trade_intent`` resolves against. Pass
+        ``include_rationale=False`` to omit the (often long) prose
+        rationale when only parameters are needed.
+
+        Returns:
+            The rule dict, or ``{"error": "..."}`` if not found.
+        """
+        try:
+            rule = _rules_mod.get_index().get(name)
+        except Exception:
+            logger.exception("get_rule failed name=%s", name)
+            raise
+        if rule is None:
+            return {"error": f"no rule named {name!r}"}
+        return rule.to_dict(include_rationale=include_rationale)
+
+    @mcp.tool()
+    def reload_rules() -> dict[str, Any]:
+        """Force the rules index to re-read ``rules/`` and ``rules.local/``.
+
+        Use after editing a rule file or override during a session, to
+        avoid restarting the server. Returns a summary of what loaded.
+        """
+        try:
+            index = _rules_mod.reload_index()
+        except Exception:
+            logger.exception("reload_rules failed")
+            raise
+        return {
+            "count": len(index),
+            "rules": [r.summary() for r in index.all()],
+        }
+
+    @mcp.tool()
+    def validate_intent_rule_refs(intent_id: str | None = None) -> dict[str, Any]:
+        """Verify that intent rule_refs resolve and detect drift.
+
+        For one intent (if ``intent_id`` is passed) or every open intent
+        (default), the tool reports:
+
+          - ``dangling``: refs whose rule name no longer resolves to a
+            file in ``rules/`` (the rule was deleted or renamed).
+          - ``drifted``: refs whose stored ``content_hash_at_fill``
+            differs from the current merged rule's hash (the rule has
+            been edited since the intent was filed; recommendations
+            against this intent should re-evaluate the framework).
+          - ``stale_versions``: refs whose stored ``version`` is older
+            than the current rule's version (a *material* edit
+            happened upstream).
+
+        Run this before recommending action on any held position when
+        rule files have changed since the intent was filed.
+
+        Returns:
+            ``{intent_id: {dangling: [...], drifted: [...],
+            stale_versions: [...]}, ...}``.
+        """
+        store = _get_store()
+        index = _rules_mod.get_index()
+        if intent_id:
+            rec = store.get(intent_id)
+            if rec is None:
+                return {"error": f"no intent with id={intent_id!r}"}
+            return {intent_id: index.validate_refs(rec.get("rule_refs") or [])}
+        out: dict[str, Any] = {}
+        for rec in store.list(status="open", limit=1000):
+            refs = rec.get("rule_refs") or []
+            if not refs:
+                continue
+            result = index.validate_refs(refs)
+            if any(result.values()):
+                out[rec["id"]] = result
+        return {"count": len(out), "issues": out}
+
+    @mcp.tool()
+    def get_position_context(symbol: str) -> dict[str, Any]:
+        """Bundle of position context for one symbol.
+
+        One-call replacement for the typical fan-out (positions +
+        intents + rules + drift checks) when evaluating a position.
+
+        Returns:
+            ``{
+              "symbol": str,
+              "intents": [...],                 # open intents on this symbol
+              "applicable_rules": [...],        # full bodies, deduplicated
+              "rule_drift": {...},              # validate_refs output, per intent
+              "sleeves": {sleeve_id: [...]},    # legs of any sleeve this symbol participates in
+            }``
+        """
+        store = _get_store()
+        index = _rules_mod.get_index()
+        intents = store.list(symbol=symbol, status="open", limit=100)
+
+        # Collect referenced rule names across intents.
+        rule_names: list[str] = []
+        rule_drift: dict[str, Any] = {}
+        sleeve_ids: set[str] = set()
+        for rec in intents:
+            for ref in rec.get("rule_refs") or []:
+                name = ref.get("rule")
+                if name and name not in rule_names:
+                    rule_names.append(name)
+            sid = rec.get("sleeve_id")
+            if sid:
+                sleeve_ids.add(sid)
+            refs = rec.get("rule_refs") or []
+            if refs:
+                rd = index.validate_refs(refs)
+                if any(rd.values()):
+                    rule_drift[rec["id"]] = rd
+
+        applicable_rules = []
+        for name in rule_names:
+            rule = index.get(name)
+            if rule is not None:
+                applicable_rules.append(rule.to_dict(include_rationale=False))
+
+        sleeves: dict[str, list[dict[str, Any]]] = {}
+        for sid in sleeve_ids:
+            sleeves[sid] = store.list_sleeve_legs(sid)
+
+        return {
+            "symbol": symbol.upper(),
+            "intents": intents,
+            "applicable_rules": applicable_rules,
+            "rule_drift": rule_drift,
+            "sleeves": sleeves,
+        }

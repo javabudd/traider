@@ -38,6 +38,12 @@ services:
       SCHWAB_TOKEN_FILE: /tokens/schwab-token.json
       # Factor provider caches Ken French ZIPs here across restarts.
       FACTOR_CACHE_DIR: /cache
+      # Framework rules. Seed lives in the image at /app/rules; per-user
+      # overrides come in via the bind mount below at
+      # /root/.traider/rules.local. The loader merges overrides on top
+      # of the seed at startup and logs divergence visibly.
+      TRAIDER_RULES_DIR: /app/rules
+      TRAIDER_RULES_LOCAL_DIR: /root/.traider/rules.local
     volumes:
       # Schwab OAuth token file (rw — the client rewrites it when the
       # access token refreshes). Host path matches the default the
@@ -52,6 +58,18 @@ services:
       - ${HOME}/.cache/traider-factor:/cache
       # Traider intents database
       - ${HOME}/.traider/intents.db:/root/.traider/intents.db
+      # Framework rule files. The Dockerfile COPYs rules/ into the
+      # image as a fallback seed, but mounting the host rules/ over
+      # /app/rules lets edits propagate without rebuilding — call
+      # reload_rules() from the MCP after editing a rule. Comment
+      # this line out if you want rules pinned to the image.
+      - ./rules:/app/rules:ro
+      # Per-user rule overrides. The directory may not exist yet on a
+      # fresh setup — create with `mkdir -p ~/.traider/rules.local`
+      # before first `docker compose up` if you want to drop overrides
+      # in. Without overrides, the loader uses the seed at /app/rules
+      # unchanged.
+      - ${HOME}/.traider/rules.local:/root/.traider/rules.local
     ports:
       - "8765:8765"
     stdin_open: true

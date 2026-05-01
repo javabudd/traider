@@ -1,0 +1,46 @@
+name: core-thematic-hold
+version: 1
+kind: lifecycle
+applies_to_class: [leadership, thematic]
+governs_decisions: [exit, trim, hold-through-event]
+
+parameters:
+  mechanical_stop: forbidden
+  exit_via: [thesis-stops, trim-ladder, concentration-cap]
+  hedges_absorb_binaries: true
+  min_core_retention_required: true
+
+requires_intent_params:
+  - thesis_stops          # array of structural conditions that invalidate the hold
+  - trim_rungs            # array of {price, size} pairs
+  - min_core              # share count below which trims do not go
+
+rationale: |
+  Multi-quarter to multi-year exposure to a structural narrative.
+  Sized to survive ordinary 25–50% drawdowns without forcing a sell.
+
+  No mechanical price stop: a −20% stop on a name that produces 25–30%
+  drawdowns 1–2× per year by structure shakes you out of routine vol
+  and forfeits the thesis.
+
+  Thesis-stops only: define ahead of time the structural conditions
+  that invalidate the reason for holding (capex disappointment
+  compounded across quarters, credible architectural challenger
+  reaching parity, loss of a marquee customer or contract, runway
+  deterioration). Exit regardless of price when those land.
+
+  Trim ladder: pre-defined price rungs at which a fixed share count
+  comes off, with a minimum core retained under all conditions short
+  of a thesis-stop. Trims redeploy into uncorrelated sleeves, not
+  another single name. The ladder is independent of the concentration
+  cap; both can fire.
+
+  Hedges absorb binaries: earnings, FOMC, geopolitical events get
+  covered by the macro hedge sleeve, not by trimming the core.
+  Pre-binary trims on a leader have historically been the wrong move.
+
+related_rules:
+  - leadership-cap
+  - thematic-cap
+  - hedge-sleeve
+  - swing-trade        # contrast: swing trades require mechanical stops

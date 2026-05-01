@@ -29,7 +29,20 @@ VALID_INSTRUMENTS = frozenset({"equity", "etf", "option", "future", "crypto"})
 VALID_SIDES = frozenset({"buy", "sell", "short", "cover"})
 VALID_STATUSES = frozenset({"planned", "open", "partially_filled", "closed", "canceled"})
 
-_SCHEMA = """
+VALID_CLASSES = frozenset({
+    "leadership", "thematic", "speculative",
+    "hedge", "dry-powder", "diversifier", "index-core",
+})
+VALID_LIFECYCLES = frozenset({
+    "core-thematic", "swing", "managed-sleeve",
+    "scale-in", "income-overlay", "rolling",
+})
+
+# Base table + base indexes. Older DBs are upgraded by _migrate()
+# below, which ALTERs in any v0.5 columns and creates the indexes
+# that depend on them. Two-phase setup is required because CREATE
+# INDEX cannot reference a column that doesn't exist yet.
+_SCHEMA_BASE = """
 CREATE TABLE IF NOT EXISTS trade_intents (
     id                  TEXT PRIMARY KEY,
     created_at          TEXT NOT NULL,
@@ -51,7 +64,18 @@ CREATE TABLE IF NOT EXISTS trade_intents (
     parent_intent_id    TEXT,
     account_id          TEXT,
     external_order_id   TEXT,
-    notes               TEXT
+    notes               TEXT,
+    -- v0.5 columns: class, lifecycle, sleeve_id, rule_refs, params,
+    -- catalysts_structured. Listed here so a fresh DB has them
+    -- without needing the migration step; on an existing DB the
+    -- CREATE TABLE IF NOT EXISTS is a no-op and _migrate() ALTERs
+    -- them in.
+    class                  TEXT,
+    lifecycle              TEXT,
+    sleeve_id              TEXT,
+    rule_refs              TEXT,
+    params                 TEXT,
+    catalysts_structured   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_trade_intents_symbol ON trade_intents(symbol);
 CREATE INDEX IF NOT EXISTS idx_trade_intents_status ON trade_intents(status);
@@ -59,14 +83,46 @@ CREATE INDEX IF NOT EXISTS idx_trade_intents_account ON trade_intents(account_id
 CREATE INDEX IF NOT EXISTS idx_trade_intents_created ON trade_intents(created_at);
 """
 
-_JSON_FIELDS = ("tags", "option_details")
+# Kept for backwards-compat in case anything imports _SCHEMA.
+_SCHEMA = _SCHEMA_BASE
+
+# Column names that are stored as JSON-encoded strings on disk and
+# parsed to native Python on read.
+_JSON_FIELDS = (
+    "tags", "option_details",
+    "rule_refs", "params", "catalysts_structured",
+)
+
+# Numeric (REAL) columns — coerce to float on write.
+_NUMERIC_FIELDS = frozenset({
+    "quantity", "target_price", "fill_price", "stop_price", "target_exit_price",
+})
+
 _COLUMNS = (
     "id", "created_at", "updated_at", "symbol", "instrument_type", "side",
     "quantity", "target_price", "fill_price", "status", "thesis", "horizon",
     "stop_price", "target_exit_price", "catalysts", "tags", "option_details",
     "parent_intent_id", "account_id", "external_order_id", "notes",
+    "class", "lifecycle", "sleeve_id",
+    "rule_refs", "params", "catalysts_structured",
 )
 _UPDATABLE = tuple(c for c in _COLUMNS if c not in {"id", "created_at"})
+
+# Schema-evolution: columns the original v0.4 schema lacked. The
+# migration runner ALTERs them in on first connect when missing.
+_ADDED_COLUMNS_V05 = (
+    ("class",                "TEXT"),
+    ("lifecycle",            "TEXT"),
+    ("sleeve_id",            "TEXT"),
+    ("rule_refs",            "TEXT"),
+    ("params",               "TEXT"),
+    ("catalysts_structured", "TEXT"),
+)
+_ADDED_INDEXES_V05 = (
+    "CREATE INDEX IF NOT EXISTS idx_trade_intents_class ON trade_intents(class)",
+    "CREATE INDEX IF NOT EXISTS idx_trade_intents_lifecycle ON trade_intents(lifecycle)",
+    "CREATE INDEX IF NOT EXISTS idx_trade_intents_sleeve ON trade_intents(sleeve_id)",
+)
 
 
 def _now_iso() -> str:
@@ -89,7 +145,30 @@ class IntentStore:
             self.db_path, check_same_thread=False, isolation_level=None
         )
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(_SCHEMA)
+        self._conn.executescript(_SCHEMA_BASE)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Idempotent schema upgrades for older DBs.
+
+        New columns added in v0.5 (class, lifecycle, sleeve_id,
+        rule_refs, params, catalysts_structured) are ALTERed in if
+        missing. Safe to run on every connect.
+        """
+        with self._lock:
+            existing = {
+                row["name"]
+                for row in self._conn.execute(
+                    "PRAGMA table_info(trade_intents)"
+                ).fetchall()
+            }
+            for col, decl in _ADDED_COLUMNS_V05:
+                if col not in existing:
+                    self._conn.execute(
+                        f"ALTER TABLE trade_intents ADD COLUMN {col} {decl}"
+                    )
+            for stmt in _ADDED_INDEXES_V05:
+                self._conn.execute(stmt)
 
     def close(self) -> None:
         with self._lock:
@@ -119,6 +198,13 @@ class IntentStore:
             "account_id": fields.get("account_id"),
             "external_order_id": fields.get("external_order_id"),
             "notes": fields.get("notes"),
+            # v0.5 structured fields
+            "class": fields.get("class_"),  # `class` is a Python keyword
+            "lifecycle": fields.get("lifecycle"),
+            "sleeve_id": fields.get("sleeve_id"),
+            "rule_refs": _dump_json(fields.get("rule_refs")),
+            "params": _dump_json(fields.get("params")),
+            "catalysts_structured": _dump_json(fields.get("catalysts_structured")),
         }
         cols = ",".join(_COLUMNS)
         placeholders = ",".join(f":{c}" for c in _COLUMNS)
@@ -135,12 +221,17 @@ class IntentStore:
             return None
 
         sets: dict[str, Any] = {}
+        # Caller passes `class_` (since `class` is a Python keyword); map
+        # it to the column name `class` here.
+        if fields.get("class_") is not None:
+            fields = dict(fields)
+            fields["class"] = fields.pop("class_")
         for key, value in fields.items():
             if value is None or key not in _UPDATABLE:
                 continue
             if key in _JSON_FIELDS:
                 sets[key] = _dump_json(value)
-            elif key in {"quantity", "target_price", "fill_price", "stop_price", "target_exit_price"}:
+            elif key in _NUMERIC_FIELDS:
                 sets[key] = float(value)
             elif key == "symbol":
                 sets[key] = value.upper()
@@ -192,6 +283,10 @@ class IntentStore:
         instrument_type: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        class_: str | None = None,
+        lifecycle: str | None = None,
+        sleeve_id: str | None = None,
+        rule_name: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         clauses: list[str] = []
@@ -214,6 +309,20 @@ class IntentStore:
         if until:
             clauses.append("created_at <= :until")
             params["until"] = until
+        if class_:
+            clauses.append("class = :class_")
+            params["class_"] = class_
+        if lifecycle:
+            clauses.append("lifecycle = :lifecycle")
+            params["lifecycle"] = lifecycle
+        if sleeve_id:
+            clauses.append("sleeve_id = :sleeve_id")
+            params["sleeve_id"] = sleeve_id
+        if rule_name:
+            # rule_refs is a JSON array of objects; LIKE-match the name.
+            # Acceptable for the volume of intents this DB holds.
+            clauses.append("rule_refs LIKE :rule_pattern")
+            params["rule_pattern"] = f'%"rule":"{rule_name}"%'
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params["limit"] = limit
         with self._lock:
@@ -221,6 +330,17 @@ class IntentStore:
                 f"SELECT * FROM trade_intents {where} "
                 f"ORDER BY created_at DESC LIMIT :limit",
                 params,
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def list_sleeve_legs(self, sleeve_id: str) -> list[dict[str, Any]]:
+        """Return all open intents in one sleeve, oldest first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM trade_intents "
+                "WHERE sleeve_id = ? AND status IN ('open', 'partially_filled') "
+                "ORDER BY created_at ASC",
+                (sleeve_id,),
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 

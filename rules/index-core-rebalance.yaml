@@ -1,0 +1,46 @@
+name: index-core-rebalance
+version: 1
+kind: lifecycle
+applies_to_class: [index-core]
+governs_decisions: [add, trim, rebalance, tax-loss-harvest]
+
+parameters:
+  target_pct_nlv: { min: 10, max: 25 }
+  trim_above: 25                       # drift above this = trim back to 15-20
+  add_below: 10                        # drift below this = add toward target band
+  exit_on_price: forbidden              # never traded on technicals/fundamentals
+  ltcg_held_lots: required-discipline   # keep all lots past 1y mark
+
+rationale: |
+  Plain broad-market index ETF (e.g. VOO, IVV, SPLG). Effectively
+  cost-free for an indefinite hold; functionally identical to
+  same-index peers. The role is anti-concentration counterweight
+  to single-name holdings — exposure to the names you don't own.
+
+  Rebalance triggers (separately from any per-position level
+  fields, which should be null by design for an index sleeve):
+
+    - Drift above ~25% NLV from outsized appreciation → trim
+      back to 15–20%.
+    - Drift below 10% from named-stock outperformance → add.
+    - Concentration hygiene: if combined named-tech exposure
+      pushes above the concurrent-factor cap (50% NLV), add to
+      this sleeve as the cheap-and-fast counterweight rather
+      than picking another single name.
+    - Tax-loss harvesting: if this ETF sits at a meaningful
+      unrealized loss while an index-equivalent (IVV, SPLG)
+      trades lower-friction, swap to harvest the loss without
+      losing market exposure. Mind the 30-day wash-sale window
+      vs any held SPY options.
+
+  No exit on price. Index core sleeves are not traded on technicals
+  or fundamentals — they're rebalanced.
+
+  Not a source of funds for tactical entries. That's dry-powder's
+  role.
+
+related_rules:
+  - concurrent-factor-cap
+  - dry-powder-band
+  - wash-sale-window
+  - qualified-dividend-tax

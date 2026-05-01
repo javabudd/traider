@@ -1,0 +1,30 @@
+name: speculative-cap
+version: 1
+kind: concentration-cap
+applies_to_class: [speculative]
+governs_decisions: [add, open, portfolio-check]
+
+parameters:
+  cap_pct_nlv: 2
+  applies_to: notional             # not risk-dollars; the absolute notional ceiling
+  ignore_stop_width: true           # cap binds even if stop is tight
+
+rationale: |
+  Speculative ("yolo") single-names are capped at 2% NLV in
+  notional, regardless of stop width or per-idea risk math. This
+  is the "if it goes to zero, the book absorbs it" line.
+
+  The cap is on notional rather than on risk-dollars because
+  speculative names are characterized by tail-heavy outcome
+  distributions where the stop may not save you (gap risk, halt
+  risk, news-driven binaries). Sizing off a tight stop on a meme
+  name produces a notional position the book can't absorb if
+  the stop is jumped.
+
+  Pair with swing-trade lifecycle (mechanical stop required) for
+  the per-position discipline; the cap is the book-level ceiling
+  on top of that.
+
+related_rules:
+  - swing-trade
+  - sizing-from-risk

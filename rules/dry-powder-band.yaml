@@ -1,0 +1,42 @@
+name: dry-powder-band
+version: 1
+kind: lifecycle
+applies_to_class: [dry-powder]
+governs_decisions: [add, trim, deploy, replenish, portfolio-check]
+
+parameters:
+  target_pct_nlv: { min: 25, max: 35 }
+  replenishment_window_sessions: 2     # below floor, replenish within N sessions
+  upper_band_breach_requires_rationale: true
+  acts_as_stop_loss: false              # explicit non-role
+
+requires_intent_params:
+  - earmarks                            # array of {target_position, planned_size}
+                                         # for tactical entries this powder is committed to
+
+rationale: |
+  Cash-equivalent reserves (T-bill ETF, money market) earmarked
+  for tactical entries are a managed sleeve, not idle cash.
+
+  Target band 25–35% NLV under normal book composition. Below the
+  floor leaves no powder for a tactical entry that's already
+  planned. Above the ceiling is opportunity cost on the equity
+  sleeves that should be deployed.
+
+  Replenishment trigger: when a deployment drops the sleeve below
+  the floor, replenish from the next available cash receipt (option
+  premium close, position trim, dividend) within one to two
+  sessions. Letting the sleeve drift below the floor for weeks
+  defeats its purpose.
+
+  No upper-band breach without rationale. Above 35% is fine if the
+  book has shifted hedged-flat or risk-off — but flag the shift
+  explicitly, don't let it accumulate by default.
+
+  Dry powder is NOT a stop-loss. If the book gets stressed, the
+  hedge sleeve is the response — not deploying powder into a
+  falling tape because "I have cash."
+
+related_rules:
+  - hedge-sleeve
+  - treasury-etf-tax

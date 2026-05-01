@@ -1,0 +1,28 @@
+name: thematic-cap
+version: 1
+kind: concentration-cap
+applies_to_class: [thematic]
+governs_decisions: [add, trim, rebalance, portfolio-check]
+
+parameters:
+  cap_pct_nlv: 10
+  redeploy_to: [diversifier, dry-powder, index-core]
+
+rationale: |
+  Thematic single-names (high-beta, high-vol, single-narrative
+  pure-plays) are capped at 10% NLV. Sized smaller than leadership
+  positions because the drawdown distribution is wider — the same
+  per-idea risk produces a much larger notional position than on
+  a leadership name with tighter ATR.
+
+  Above the cap, trim back into the band on the next sustained move
+  higher; redeploy proceeds into uncorrelated sleeves.
+
+  Thematic names are sized to survive 50%+ drawdowns without forcing
+  a sell — see core-thematic-hold for the lifecycle discipline that
+  pairs with this cap.
+
+related_rules:
+  - core-thematic-hold
+  - concurrent-factor-cap
+  - sizing-from-risk

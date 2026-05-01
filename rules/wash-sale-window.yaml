@@ -1,0 +1,40 @@
+name: wash-sale-window
+version: 1
+kind: tax-discipline
+applies_to_class: [leadership, thematic, speculative, index-core, diversifier]
+applies_to_account_type: [taxable]
+governs_decisions: [trim, close, rebuy, reentry]
+
+parameters:
+  window_days_before_loss: 30
+  window_days_after_loss: 30
+  substantially_identical_check_required: true
+  check_proceeds_destination: true
+  check_recent_buys_against_pending_loss: true
+
+rationale: |
+  A loss cannot be claimed if a substantially identical security is
+  bought within 30 days before or after the realized-loss sale.
+  Before recommending a rebuy after a recent loss, check trade
+  history and flag the window.
+
+  "Substantially identical" is a judgment call: same ticker is
+  obviously caught; index-equivalent ETFs (SPY/IVV/SPLG/VOO) are
+  arguably caught; a different sector ETF or single-name proxy
+  is not. When ambiguous, surface the ambiguity rather than
+  assuming.
+
+  Common safe rebuy targets after a single-name loss: an index ETF,
+  a diversifier (gold, treasuries), or a different sector single-
+  name. Avoid rebuying the same ticker, an option on the same
+  underlying, or a tracker ETF that holds it as a top-5 weight
+  within the 30-day window.
+
+  Tax tail does not wag the risk dog. If the trade thesis says
+  exit-then-reenter and the wash-sale window blocks the reenter,
+  surface the trade-off (lost loss-claim vs missed opportunity)
+  and let the user decide.
+
+related_rules:
+  - holding-period-boundary
+  - lot-method-verification

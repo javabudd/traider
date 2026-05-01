@@ -1,0 +1,27 @@
+name: leadership-cap
+version: 1
+kind: concentration-cap
+applies_to_class: [leadership]
+governs_decisions: [add, trim, rebalance, portfolio-check]
+
+parameters:
+  cap_pct_nlv: 25
+  redeploy_to: [diversifier, dry-powder, index-core]
+  exclude_redeploy: [single-name-with-correlation_above: 0.5]
+
+rationale: |
+  Leadership single-names (mega-caps that anchor the directional book) are
+  capped at 25% NLV. Above the cap, trim back into the band on the next
+  sustained move higher; redeploy proceeds into uncorrelated sleeves —
+  not into another high-correlation single name.
+
+  The cap exists because every other long position in a tech-heavy book
+  shares meaningful correlation with the leadership name on a risk-off
+  tape. An over-cap weight functionally compounds tech-concentration
+  across the whole portfolio. Hedges sized against book-level exposure
+  assume the leadership name stays inside the cap.
+
+related_rules:
+  - core-thematic-hold
+  - concurrent-factor-cap
+  - sizing-from-risk

@@ -1,0 +1,37 @@
+name: risk-reward-rules
+version: 1
+kind: sizing
+applies_to_class: [leadership, thematic, speculative, diversifier]
+governs_decisions: [open, target-set, evaluate-trade-idea]
+
+parameters:
+  trend_min_rr: 2.0
+  mean_reversion_min_rr: 1.5
+  event_trade_rr: bimodal-undefined    # not a clean R/R; quote implied move instead
+  aspirational_target_threshold:        # flag when target exceeds this
+    multiple_of_recent_range: 2.0
+    sigma_implied_move_unanchored: 1.0  # > 1σ without specific catalyst
+
+rationale: |
+  Compute R/R from the entry, stop, and a defensible target:
+
+    R/R = (target − entry) / (entry − stop)        # longs
+    R/R = (entry − target) / (stop − entry)        # shorts
+
+  Rules of thumb:
+    - Trend trades: require ≥ 2:1 to the first target.
+    - Mean-reversion: 1.5:1 acceptable if the edge is statistical
+      (z-score, pair spread with historical half-life).
+    - Event trades (earnings, FOMC, data releases): R/R is poorly
+      defined because the move distribution is bimodal. Quote the
+      implied move from the option chain (ATM straddle / spot)
+      and compare the user's target against it rather than
+      pretending R/R is clean.
+
+  A target that exceeds 2× recent range or the 1-σ implied move
+  without a specific catalyst is aspirational, not a plan. Say so
+  rather than letting a fanciful target inflate apparent R/R.
+
+related_rules:
+  - sizing-from-risk
+  - swing-trade

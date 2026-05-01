@@ -33,6 +33,12 @@ RUN mkdir -p src/traider \
 
 COPY src /app/src
 
+# Framework rules — the canonical seed ships with the image. Per-user
+# overrides live at /root/.traider/rules.local (gitignored on the host,
+# mounted into the container by docker-compose so they persist across
+# container restarts without rebuilding the image).
+COPY rules /app/rules
+
 EXPOSE 8765
 
 ENTRYPOINT ["conda", "run", "--no-capture-output", "-n", "traider", "traider"]

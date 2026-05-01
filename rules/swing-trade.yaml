@@ -1,0 +1,45 @@
+name: swing-trade
+version: 1
+kind: lifecycle
+applies_to_class: [speculative, diversifier, leadership, thematic]
+governs_decisions: [open, exit, trim, hold-through-event, close]
+
+parameters:
+  mechanical_stop: required
+  stop_anchor: [swing-structural, atr-multiple, thesis-time]
+  target_ladder: required
+  min_runner_required: true
+  catalyst_calendar_drives_lifecycle: true
+
+requires_intent_params:
+  - stop                            # numeric or rule (e.g. "close < $20")
+  - target_ladder                   # array of {price, size_pct} pairs
+  - min_runner                      # what stays on after the ladder is taken
+  - thesis_stops                    # qualitative invalidators (catalyst + structural)
+
+rationale: |
+  Directional position covering a defined catalyst or technical
+  setup with a horizon of weeks to a few months.
+
+  Mechanical stop required: anchored to swing structure or 2–3×
+  ATR per sizing-from-risk. The stop says "the thesis is wrong" —
+  it executes. No hand-wave "I'll watch it" stops.
+
+  Pre-defined target ladder: profit-take rungs at named levels,
+  with a stated minimum runner. Don't drift the ladder once price
+  is moving.
+
+  Catalyst calendar drives the position lifecycle. If the named
+  catalyst lands and doesn't move the thesis, exit even at break-
+  even. Don't hold a swing into a different catalyst than the
+  one it was sized for.
+
+  Contrast with core-thematic-hold (no mechanical stop, thesis-
+  stops only). When recommending a new idea, name the lifecycle
+  class explicitly so this rule's discipline applies cleanly.
+
+related_rules:
+  - core-thematic-hold
+  - sizing-from-risk
+  - entries-no-chase
+  - risk-reward-rules

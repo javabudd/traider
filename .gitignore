@@ -16,3 +16,6 @@ venv/
 .vscode/
 logs/
 *.log
+
+# Per-user rule overrides — see rules/README.md
+rules.local/

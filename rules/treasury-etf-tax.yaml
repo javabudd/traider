@@ -1,0 +1,36 @@
+name: treasury-etf-tax
+version: 1
+kind: tax-discipline
+applies_to_class: [dry-powder]
+applies_to_account_type: [taxable]
+governs_decisions: [select-vehicle, hold, distribute]
+
+parameters:
+  distribution_classification: interest-income       # not qualified dividends
+  federal_rate: ordinary
+  state_tax_status: exempt-for-treasury-portion       # specific to T-bill ETFs
+  preferred_vehicle_for_state_tax_state: treasury-etf
+  alternative_in_state_tax_state: discouraged          # money-market funds holding corporate paper
+
+rationale: |
+  Distributions from a treasury ETF (e.g. SGOV, BIL) are interest
+  income, taxed as ordinary income at the federal level (NOT
+  qualified dividends — this matters vs cash in a money-market
+  fund holding corporate paper).
+
+  The federal T-bill interest portion IS state-tax-exempt for
+  residents of states with income tax — net-of-tax yield
+  meaningfully better than a brokerage cash sweep or a money-
+  market fund holding corporate paper, in a state-tax state.
+
+  No cap-gains decay risk since principal is par-anchored. Mark
+  cycles between ~$100.05 ex-div and ~$100.65 just before the
+  next distribution; don't read those swings as P&L on the
+  position — they're accrued interest about to pay out as cash.
+
+  No wash-sale concerns (Treasury ETFs aren't substantially
+  identical to anything held in a typical book).
+
+related_rules:
+  - dry-powder-band
+  - wash-sale-window

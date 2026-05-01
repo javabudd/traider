@@ -25,14 +25,24 @@ new operation, bugfix, refactor, config change). A trading question
 cue to load it.)
 
 (Trade-preparation methodology — position sizing, stop placement,
-risk/reward, tax-aware timing — lives in `RISK.md` and is similarly
-not auto-loaded. **Load `RISK.md` when trade preparation is in
-scope, whether the user put it there (*"how should I size this?"*,
-*"where does the stop go?"*, *"what's my R/R?"*) or you did (you're
-about to recommend a specific entry / stop / target, flag wash-sale
-exposure, or suggest trimming a concentrated position).** Scoping
-questions don't need it; once levels and size are on the table — by
-either party — that file is the anchor for your answer.)
+risk/reward, lifecycle discipline, concentration caps, hedge
+management, dry-powder management, tax-aware timing — lives in the
+**`rules/`** directory at the repo root, surfaced via the intent
+provider's MCP tools (`list_rules`, `get_rule`,
+`get_position_context`, `validate_intent_rule_refs`). Rules are
+*not* auto-loaded. **When trade preparation is in scope** —
+whether the user put it there (*"how should I size this?"*,
+*"where does the stop go?"*, *"what's my R/R?"*) or you did
+(you're about to recommend a specific entry / stop / target, flag
+wash-sale exposure, suggest trimming a concentrated position, or
+evaluate a hedge for monetization) — call `list_rules(...)` to see
+what's relevant and `get_rule(name)` for the bodies you need.
+Prefer `get_position_context(symbol)` when reasoning about a held
+position: it bundles the open intents, applicable rules with
+parameters resolved, drift flags, and any sleeve aggregates in one
+call. `RISK.md` itself is now a thin orientation file pointing at
+`rules/`; load `rules/README.md` directly if you want the schema,
+override system, and merge semantics.)
 
 (Options-specific methodology — chain-quality verification, IV
 context, greeks interpretation, structure selection, assignment
@@ -232,7 +242,8 @@ the same question:
   questions.
 - **ATR-based stops and targets** — converts the volatility read
   into concrete entry / stop / target prices and an R/R ratio.
-  Bridges TA into the trade-prep work in `RISK.md`.
+  Bridges TA into the trade-prep rules at `rules/sizing-from-risk`,
+  `rules/swing-trade`, `rules/risk-reward-rules`.
 - **Pair / spread analytics** — log-price spread with z-score and
   AR(1) half-life, rolling correlation, beta. Reach for these on
   relative-value questions (*"is GLD cheap vs SLV right now?",

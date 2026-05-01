@@ -1,0 +1,55 @@
+name: sizing-from-risk
+version: 1
+kind: sizing
+applies_to_class: [leadership, thematic, speculative, hedge, diversifier]
+governs_decisions: [open, add, scale-in]
+
+parameters:
+  per_idea_risk_pct_nlv: { default_min: 0.5, default_max: 1.0, hard_cap: 2.0 }
+  concurrent_book_risk_pct_nlv: { min: 5, max: 6 }
+  ask_for_stop_first: true
+
+  # Option-specific
+  option_long_premium_max: debit_paid
+  option_credit_spread_max: width_minus_credit
+  option_naked_short: discouraged
+
+requires_intent_params:
+  - entry                               # numeric or rule
+  - stop                                # numeric or rule (required for non-hedge)
+  - account_risk_pct_used                # what fraction of the per-idea cap was used
+
+rationale: |
+  Position size is derived from the stop distance, not from
+  conviction. The core formula:
+
+    risk_dollars = account_equity × account_risk_pct
+    shares       = risk_dollars / (entry_price - stop_price)   # longs
+    shares       = risk_dollars / (stop_price - entry_price)   # shorts
+
+  Defaults when the user hasn't specified:
+    - Per idea: 0.5–1% of equity. Use 0.5% on lower-conviction
+      ideas, 1% on high-conviction. Never more than 2% on a
+      single idea without explicit ask.
+    - Concurrent: cap total open risk (sum of per-position risk
+      budgets, not notional) at 5–6% of equity.
+
+  If the user asks for a dollar size without giving a stop, ask
+  for the stop first. Sizing without a stop is sizing blind.
+
+  Options:
+    - Long premium (calls, puts, debit spreads): max loss is the
+      debit paid. Size so debit × contracts × 100 ≤ risk_dollars.
+    - Credit spreads: max loss is (width − credit) × 100 per
+      contract. Size off that, not off the credit received.
+    - Naked short options: don't recommend. If the user asks,
+      flag undefined-risk profile and require explicit confirm.
+    - Short calls near ex-dividend dates with little extrinsic
+      are assignment bait — check the dividend calendar.
+
+related_rules:
+  - leadership-cap
+  - thematic-cap
+  - speculative-cap
+  - hedge-sleeve
+  - swing-trade

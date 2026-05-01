@@ -1,0 +1,40 @@
+name: collectibles-tax-treatment
+version: 1
+kind: tax-discipline
+applies_to_class: [diversifier]
+applies_to_account_type: [taxable]
+governs_decisions: [open, hold, exit, evaluate-after-tax-rr]
+
+parameters:
+  ltcg_max_rate_federal: 28           # vs 20% on standard LTCG
+  applies_to_vehicles:
+    - GLD                              # SPDR Gold Shares (physical-gold-backed)
+    - IAU                              # iShares Gold Trust
+    - SLV                              # iShares Silver Trust
+    - PPLT                             # Aberdeen Platinum
+    # Mining-equity ETFs (GDX, GDXJ) are NOT collectibles — they hold equities.
+  preferred_alternative_for_lower_rate: gold-mining-equity-etf  # if tax-rate sensitivity dominates
+
+rationale: |
+  Physical-metal-backed ETFs (GLD, IAU, SLV) are taxed as
+  collectibles in taxable accounts: the LTCG rate caps at 28%
+  rather than the 20% top rate on standard equities. Holding-
+  period rules still apply (≥ 1y for LTCG treatment).
+
+  This raises the after-tax R/R bar on these positions vs equity
+  diversifiers. A 10% pre-tax move on GLD yields less after-tax
+  net than the same 10% on a non-collectible diversifier — the
+  difference compounds over multi-year holds.
+
+  Mining-equity ETFs (GDX, GDXJ) are NOT collectibles — they
+  hold equities. Different correlation profile (more equity-beta,
+  less pure-gold exposure) but standard LTCG treatment. If the
+  thesis is gold exposure specifically and tax-rate sensitivity
+  is high, a mix may be worth considering.
+
+  This rule is informational — it doesn't override the trade
+  thesis, but the after-tax R/R is what matters for close calls.
+
+related_rules:
+  - holding-period-boundary
+  - risk-reward-rules

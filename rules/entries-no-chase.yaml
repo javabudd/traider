@@ -1,0 +1,36 @@
+name: entries-no-chase
+version: 1
+kind: sizing
+applies_to_class: [leadership, thematic, speculative, diversifier, hedge, index-core]
+governs_decisions: [open, add, scale-in]
+
+parameters:
+  prefer_limit_order: true
+  market_order_on_thin_book: discouraged
+  pre_market_after_hours_quotes: avoid
+  full_ladder_required_upfront: true
+  pullback_size: smaller-starter      # if price has run past planned entry
+
+rationale: |
+  Don't chase fills. Specific rules:
+
+  - Prefer a limit at mid or the near side of the spread. Market
+    orders on thin books are a tax.
+  - If price has already run past the planned entry, say so —
+    suggest a pullback level or a smaller starter size, not a
+    chase fill.
+  - After-hours and pre-market quotes are often stubs, especially
+    on options. Wait for the regular-hours open before quoting a
+    fillable price.
+  - For scaling in, specify the full ladder (levels + size at
+    each) up front. Ad hoc adds after entry drift the risk
+    budget.
+
+  When an intent uses scale-in, the full ladder must be in the
+  intent's params at record time. Adding new rungs after entry
+  is allowed only with a new intent record, not by editing the
+  ladder mid-trade.
+
+related_rules:
+  - sizing-from-risk
+  - swing-trade

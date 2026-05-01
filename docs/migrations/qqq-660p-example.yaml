@@ -1,0 +1,118 @@
+# Example migration: QQQ 6/18 660P intent in the new structured shape.
+#
+# This is what the intent at id 5468c333-... looks like after the schema
+# additions: typed class/lifecycle, sleeve_id grouping, rule_refs with
+# content hashes captured at fill, structured params/catalysts, tight
+# position-specific thesis. The notes journal is preserved unchanged.
+
+id: 5468c333-f790-4196-92b5-af7f9550c1fd
+created_at: 2026-04-30T15:39:40+00:00
+updated_at: 2026-05-01T03:00:00+00:00
+
+symbol: QQQ
+instrument_type: option
+side: buy
+quantity: 1
+fill_price: 16.64
+status: open
+
+# NEW STRUCTURED FIELDS
+
+class: hedge
+lifecycle: managed-sleeve
+sleeve_id: a1b2c3d4-e5f6-4789-9abc-def012345678   # shared with the 640P intent
+account_id: null
+
+option_details:
+  expiration: 2026-06-18
+  strike: 660
+  type: put
+
+rule_refs:
+  - rule: hedge-sleeve
+    version: 1
+    content_hash_at_fill: <sha256 of merged rule yaml at record time>
+  - rule: sizing-from-risk
+    version: 1
+    content_hash_at_fill: <sha256 ...>
+  - rule: concurrent-factor-cap
+    version: 1
+    content_hash_at_fill: <sha256 ...>
+
+params:
+  # Required by hedge-sleeve.requires_intent_params
+  coverage_target_dollar_delta: -32000        # QQQ-equivalent short delta at fill
+  exit_levels:
+    ma_level: 625                              # QQQ 20DMA
+    vol_threshold: 16                          # VIX
+    deeper_vol_threshold: 14                   # VIX for thesis-stop trigger
+    decay_threshold_pct: 50                    # "material put decay"
+
+  # Required by sizing-from-risk.requires_intent_params
+  entry: 16.64
+  stop: null                                   # hedges don't carry a price stop
+  account_risk_pct_used: 2.1                   # $1,664 / $80k NLV
+
+  # Position-specific context captured at fill
+  fill_context:
+    underlying_at_fill: 663.74
+    vix_at_fill: 17.33
+    iv_at_fill_pct: 18.7
+    delta_at_fill: -0.49
+    dte_at_fill: 49
+    theta_per_day_at_fill: 0.18
+
+  # Sleeve aggregates (denormalized for fast read; recomputed on sleeve change)
+  sleeve_combined_premium_pct_nlv: 3.9
+  sleeve_combined_dollar_delta: -52000
+
+catalysts:
+  - { date: 2026-05-08, type: macro,    name: NFP,                 impact: high }
+  - { date: 2026-05-12, type: macro,    name: CPI,                 impact: high }
+  - { date: 2026-05-20, type: earnings, name: NVDA Q1 FY27,        impact: high }
+  - { date: 2026-06-15, type: macro,    name: FOMC (within expiry), impact: high }
+
+thesis: |
+  Layered alongside the existing 640P after the SPY 5/8 spread closed
+  for −$163. ATM strike chosen for delta-per-dollar and faster response
+  on a drawdown; same expiry as the 640P consolidates hedge management
+  on one calendar with no calendar pin to manage. Post-FOMC IV crush
+  made entry ~3 IV points cheaper than two days earlier; vol regime
+  is normal, not stressed.
+
+related_intents:                                # typed edges instead of prose UUIDs
+  - { rel: sleeves_with, intent_id: 033e4286-ef95-49f9-a77f-861953a52daf }
+  - { rel: replaces,     intent_id: c82b77e3-b899-4737-8a45-866fdd3770df }
+  - { rel: funded_by,    intent_id: 18bd3b19-2b5e-404f-833c-851b88b6c9e4 }
+
+tags: [post-fomc, layered]                       # free-form labels, not load-bearing
+
+target_price: null
+stop_price: null
+target_exit_price: null
+horizon: macro hedge — exp 2026-06-18, ~49 DTE
+external_order_id: "1006192331385"
+parent_intent_id: null
+
+notes: |
+  <append-only journal preserved unchanged from current state — the
+   existing fill notes, sleeve update entries, etc. all stay as-is.
+   Notes carry state history; they are not rewritten on schema migration.>
+
+# WHAT WAS REMOVED FROM THE THESIS PROSE
+#
+# All of the following lived in the prior thesis text and is now
+# captured by rule references + structured params:
+#
+#   - "Manage 640P + 660P as one combined book"             → sleeve_id + hedge-sleeve rule
+#   - "Multi-trigger exit framework: (a) 20DMA, (b) VIX <16, (c) ATH+VIX<14+decay"
+#                                                            → params.exit_levels +
+#                                                              hedge-sleeve.exit_triggers
+#   - "Same-session rotation cost"                          → hedge-sleeve.rationale
+#   - "Sizing per RISK.md..."                               → sizing-from-risk rule_ref
+#   - "Inside the 5–6% concurrent-risk cap"                 → concurrent-factor-cap rule_ref
+#   - "Within hedge-premium budget"                         → hedge-sleeve parameters
+#
+# Word count: thesis prose dropped from ~1,800 (pre-RISK.md-refactor) to
+# ~280 (current) to ~80 (this shape). All decision-relevant information
+# preserved — what's gone is duplicated framework restatement.

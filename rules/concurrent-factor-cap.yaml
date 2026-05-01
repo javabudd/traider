@@ -1,0 +1,39 @@
+name: concurrent-factor-cap
+version: 1
+kind: concentration-cap
+applies_to_class: [leadership, thematic, speculative, hedge, index-core]
+governs_decisions: [add, open, portfolio-check]
+
+parameters:
+  cap_pct_nlv: 50                    # summed exposure across positions in same factor
+  factors:
+    - long-tech-beta
+    - long-precious-metals
+    - short-duration
+    - long-btc-cycle
+    - long-quantum-thematic
+    - long-energy
+  remediation:                       # actions when cap exceeded
+    - trim-most-correlated-position
+    - hedge-the-factor-explicitly
+    - open-no-new-position-in-factor
+
+rationale: |
+  Per-position concentration caps don't bound aggregate factor
+  exposure across positions. When summed exposure to a single
+  factor (all long-tech-beta, all long-precious-metals, all
+  short-duration) exceeds 50% NLV, no further adds in that factor
+  without trimming first or hedging the factor explicitly.
+
+  Correlation in stress compounds. Three different "thematic
+  long-tech-beta" positions at 9% NLV each look diversified by
+  ticker but behave as one 27% position on a risk-off tape.
+
+  This rule fires at portfolio-check time, not per-position
+  add. The check needs the full open-position book and the
+  per-position factor tags.
+
+related_rules:
+  - leadership-cap
+  - thematic-cap
+  - hedge-sleeve

@@ -1,0 +1,46 @@
+name: qualified-dividend-tax
+version: 1
+kind: tax-discipline
+applies_to_class: [index-core, leadership, thematic, diversifier]
+applies_to_account_type: [taxable]
+governs_decisions: [hold, evaluate-after-tax-yield]
+
+parameters:
+  qualified_holding_requirement_days: 61   # 61 days within the 121-day window
+                                            # surrounding the ex-dividend date
+  federal_rate_qualified: ltcg-rates        # 0/15/20% federal
+  federal_rate_non_qualified: ordinary
+  qualified_issuers:
+    - us-domestic-corporations
+    - qualifying-foreign-corporations
+  non_qualified_examples:
+    - reits                                 # most REIT distributions
+    - bdc-business-development-companies
+    - mlps                                  # most MLP distributions
+    - money-market-fund-distributions
+
+rationale: |
+  Dividends from US domestic corporations (and qualifying foreign
+  issuers) held for the required period are "qualified" — taxed
+  at LTCG rates (0/15/20% federal) rather than ordinary income.
+  The required holding is 61 days within the 121-day window
+  surrounding the ex-dividend date; trading around ex-div can
+  disqualify the dividend.
+
+  Index ETFs (VOO, SPY, IVV) pass through qualified dividends
+  for the qualifying portion of their holdings. A standard
+  rough cut: ~95%+ of their distributions are qualified.
+
+  Non-qualified distributions (REITs, BDCs, MLPs, money-market
+  fund distributions) are taxed at ordinary rates — meaningfully
+  higher in a high-bracket account. This affects the after-tax
+  yield comparison between, e.g., a REIT ETF and an equity ETF
+  with similar pre-tax distribution rate.
+
+  Don't trade around ex-dividend dates with the goal of capturing
+  the dividend without the holding period — it disqualifies.
+
+related_rules:
+  - holding-period-boundary
+  - index-core-rebalance
+  - treasury-etf-tax

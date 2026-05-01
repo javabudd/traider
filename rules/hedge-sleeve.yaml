@@ -1,0 +1,49 @@
+name: hedge-sleeve
+version: 1
+kind: lifecycle
+applies_to_class: [hedge]
+governs_decisions: [open, monetize, roll, rotate, portfolio-check]
+
+parameters:
+  premium_budget_pct_nlv: { min: 3, max: 5 }
+  coverage_unit: dollar_delta_underlying
+  accounting: sleeve_level_combined
+  same_session_rotation: discouraged
+
+requires_intent_params:
+  - sleeve_id             # groups multi-leg structures
+  - coverage_target       # dollar-delta of underlying being hedged
+  - exit_levels           # specific values for the multi-trigger framework
+                          #   { ma_level, vol_threshold, deeper_vol_threshold,
+                          #     decay_threshold_pct }
+
+rationale: |
+  A hedge sleeve protects book-level beta exposure against macro
+  drawdowns. It is a distinct lifecycle from directional trades —
+  different sizing, different exit framework, different P&L
+  expectation.
+
+  Hedges are an *expense*, not an asset. They are *supposed* to lose
+  money on rallies. Budget premium as a fraction of NLV (3–5% soft
+  cap, total open across all legs) to prevent drift into "I keep
+  adding insurance" overspend.
+
+  Coverage target: express size as dollar-delta-equivalent against
+  the underlying being hedged, not as contract count or premium. A
+  1-contract ATM put covers very different exposure depending on
+  strike, expiry, and underlying beta to the book.
+
+  Sleeve-level accounting: when multiple legs hedge the same
+  underlying, manage as one combined book — combined dollar delta,
+  combined premium at risk, combined exit framework. Per-leg P&L is
+  noise.
+
+  Same-session rotation cost: closing one hedge and opening another
+  in the same session burns transaction premium twice. Before
+  rotating, ask whether a trigger fired on the closed hedge or
+  whether you're restructuring because the new hedge looks
+  attractive. The second is usually a mistake.
+
+related_rules:
+  - sizing-from-risk
+  - concurrent-factor-cap

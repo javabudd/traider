@@ -12,6 +12,7 @@ dependencies = [
     "yfinance>=0.2.40",
     "lxml>=5.0",
     "beautifulsoup4>=4.12",
+    "PyYAML>=6.0",
 ]
 
 [project.scripts]
