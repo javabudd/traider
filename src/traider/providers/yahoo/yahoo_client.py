@@ -345,9 +345,15 @@ class YahooClient:
         for d in exp_dates:
             try:
                 chain = ticker.option_chain(d)
-            except Exception:
-                logger.exception("option_chain failed symbol=%s date=%s", symbol, d)
-                continue
+            except Exception as e:
+                # Don't silently drop: a partial chain skews aggregate
+                # views (numberOfContracts, top-OI scans, IV term
+                # structure) and the caller has no way to see the gap.
+                # Surface and stop, per AGENTS.md "no silent fallbacks."
+                raise YahooDataError(
+                    f"yfinance option_chain failed for {symbol!r} "
+                    f"expiration {d}: {e}"
+                ) from e
             try:
                 exp = datetime.strptime(d, "%Y-%m-%d").date()
             except ValueError:

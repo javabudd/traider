@@ -62,11 +62,19 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     rather than silently dropping it — same "say so and stop"
     posture AGENTS.md takes on rate limits.
 
-- [ ] **#3 — Yahoo silent-drop of failed option expirations.**
+- [x] **#3 — Yahoo silent-drop of failed option expirations.**
   `yahoo/yahoo_client.py:336-338`. When `ticker.option_chain(d)`
   raises mid-loop, the bad expiration is logged-and-`continue`'d.
   Caller gets a partial chain with no `dataQualityWarning` field
   flagging the dropped slices.
+  - **Resolved:** the per-expiration loop in `get_option_chain` now
+    raises `YahooDataError` on the first failed expiration with the
+    original exception chained, matching the posture taken for #2's
+    `_quote_payload` / `get_quotes` fix. The tool layer
+    (`yahoo/tools.py:307-309`) already re-raises, so the failure
+    surfaces to the caller instead of being papered over with a
+    partial `callExpDateMap` / `putExpDateMap` and a misleading
+    `numberOfContracts`.
 
 - [ ] **#4 — SEC Form 4 silent-skip on parse failure.**
   `sec_edgar/tools.py:395-409`. `parse()` failures are logged and
