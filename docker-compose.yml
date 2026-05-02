@@ -56,20 +56,21 @@ services:
       # restarts is the whole point of the cache — without this volume
       # every restart would re-fetch the full set.
       - ${HOME}/.cache/traider-factor:/cache
-      # Traider intents database
-      - ${HOME}/.traider/intents.db:/root/.traider/intents.db
+      # User data dir — intents journal, account profile, per-user
+      # rule overrides. One mount surfaces all of ~/.traider/ inside
+      # the container at /root/.traider/, which is where every loader
+      # in the intent provider looks by default. Override the host
+      # path with TRAIDER_HOME in .env if you keep this data
+      # elsewhere (encrypted volume, synced folder, …). Docker
+      # creates the host dir if missing, so a fresh clone works
+      # without any pre-`up` mkdir.
+      - ${TRAIDER_HOME:-${HOME}/.traider}:/root/.traider
       # Framework rule files. The Dockerfile COPYs rules/ into the
       # image as a fallback seed, but mounting the host rules/ over
       # /app/rules lets edits propagate without rebuilding — call
       # reload_rules() from the MCP after editing a rule. Comment
       # this line out if you want rules pinned to the image.
       - ./rules:/app/rules:ro
-      # Per-user rule overrides. The directory may not exist yet on a
-      # fresh setup — create with `mkdir -p ~/.traider/rules.local`
-      # before first `docker compose up` if you want to drop overrides
-      # in. Without overrides, the loader uses the seed at /app/rules
-      # unchanged.
-      - ${HOME}/.traider/rules.local:/root/.traider/rules.local
     ports:
       - "8765:8765"
     stdin_open: true
