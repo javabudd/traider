@@ -2,7 +2,7 @@
 name = "traider"
 version = "0.4.0"
 description = "Unified read-only MCP server hub for AI-CLI-assisted trading insight"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "mcp>=1.0.0",
     "httpx>=0.27",

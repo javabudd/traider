@@ -323,10 +323,20 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
   warning printed before the SystemExit fires. Move validation
   right after `load_settings()`.
 
-- [ ] **#21 — `pyproject.toml` declares
+- [x] **#21 — `pyproject.toml` declares
   `requires-python = ">=3.11"` but DEVELOPING.md and the Dockerfile
   pin Python 3.13.** With no CI matrix, 3.11 / 3.12 are untested
   floors. Either tighten to `>=3.13` or add a test job.
+  - **Resolved:** `pyproject.toml` now declares
+    `requires-python = ">=3.13"`, matching the `python=3.13` pin in
+    `DEVELOPING.md:45` (conda env recipe) and `Dockerfile:18`. The
+    untested 3.11 / 3.12 floors are gone; pip will refuse to install
+    on an interpreter the project hasn't actually been exercised on,
+    rather than letting a 3.11 user discover the mismatch via a
+    runtime `SyntaxError` or missing-stdlib error. Adding a CI matrix
+    for 3.11 / 3.12 is still tracked under #12 (zero tests, zero CI)
+    and remains the path if support for older interpreters is
+    revisited.
 
 ## LOW
 
