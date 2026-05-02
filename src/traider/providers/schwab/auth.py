@@ -67,7 +67,7 @@ def run_auth_flow() -> None:
             "No 'code' query parameter found in the pasted URL."
         )
 
-    with httpx.Client(timeout=10.0) as client:
+    with httpx.Client(timeout=30.0) as client:
         r = client.post(
             SCHWAB_TOKEN_URL,
             auth=(app_key, app_secret),

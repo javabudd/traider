@@ -300,9 +300,14 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     check, not a thresholded label. Tool docstrings and
     `fred/README.md` field-path callouts updated to match.
 
-- [ ] **#18 — `auth.py` HTTP timeout 10s vs `schwab_client.py`
+- [x] **#18 — `auth.py` HTTP timeout 10s vs `schwab_client.py`
   30s.** `schwab/auth.py:70`. Slow-network users hit a confusing
   timeout on the most fragile path (one-shot OAuth). Align to 30.
+  - **Resolved:** the one-shot OAuth `httpx.Client` in `run_auth_flow`
+    now uses `timeout=30.0`, matching the long-lived client constructed
+    in `schwab_client.py:71`. Slow-network users on the first auth path
+    no longer see a tighter timeout than every subsequent token-refresh
+    or API call would tolerate.
 
 - [ ] **#19 — Treasury monetary fields are strings — not enforced
   anywhere.** DEVELOPING.md is explicit, `treasury_client.py`
