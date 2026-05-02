@@ -1,13 +1,12 @@
 name: lot-method-verification
-version: 1
+version: 2
 kind: tax-discipline
 applies_to_class: [leadership, thematic, speculative, index-core, diversifier]
 applies_to_account_type: [taxable]
 governs_decisions: [trim, close, partial-exit]
 
 parameters:
-  schwab_default: FIFO
-  account_setting_path: "Service → Cost Basis Method"
+  typical_broker_default: FIFO
   alternatives: [HIFO, specific-lot-id, LIFO]
   verification_source: broker-realized-gl-report
 
@@ -16,14 +15,17 @@ requires_intent_params:
   - lot_method_verified_at              # timestamp of last realized-G/L pull, or null
 
 rationale: |
-  Schwab's default lot-selection method is FIFO, but accounts can
-  be set to HIFO or specific-lot ID via Service → Cost Basis Method.
-  Reconstructing a lot table under an *assumed* method without
-  verification produces the wrong cost basis on every future trim.
+  Most US brokers default new taxable accounts to FIFO, but the
+  account holder can usually switch to HIFO or specific-lot ID in
+  the broker's cost-basis settings. The exact menu path is
+  broker-specific (and may change); confirm it in your broker's
+  documentation rather than assuming. Reconstructing a lot table
+  under an *assumed* method without verification produces the wrong
+  cost basis on every future trim.
 
   After any partial sale, pull the Realized Gain/Loss report for
-  that order ID directly from the broker (Schwab: Accounts → History
-  → Realized Gain/Loss) to capture:
+  that order ID directly from the broker — every brokerage exposes
+  this somewhere under account history / tax reporting — to capture:
     1. which lot(s) were matched
     2. realized G/L on the trim
     3. STCG/LTCG split
@@ -37,6 +39,11 @@ rationale: |
   verified_at) is what makes the verification status auditable
   per-intent. An intent with lot_method = "unverified" is a flag
   to pull the realized-G/L report on the next trim.
+
+  This rule is broker-agnostic. traider is provider-agnostic by
+  design (Schwab is one supported broker today; others will follow),
+  so rule parameters and rationale should not name a specific
+  broker's UI paths or defaults — keep those in provider docs.
 
 related_rules:
   - holding-period-boundary
