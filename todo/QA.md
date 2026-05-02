@@ -10,13 +10,12 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
 
 ## Triage order
 
-1. #6 — last remaining silent-fallback (fed-calendar layout drift).
-   AGENTS.md treats this class as trust-breaking.
-2. ~~#1 envelope rollout across `schwab` / `yahoo` / `news` / `fred`~~
+1. ~~#1 envelope rollout across `schwab` / `yahoo` / `news` / `fred`~~
    (resolved). ~~#2, #3, #4 silent fallbacks~~ (resolved).
-   ~~#5 13F unit boundary~~ (resolved).
-3. Security tightening: #7, #8.
-4. Land `tests/` + CI; start with parser fixtures (Form 4 XML, 13F
+   ~~#5 13F unit boundary~~ (resolved). ~~#6 fed-calendar layout
+   drift~~ (resolved). All silent-fallback findings are now closed.
+2. Security tightening: #7, #8.
+3. Land `tests/` + CI; start with parser fixtures (Form 4 XML, 13F
    XML, FOMC HTML snapshot, Ken French CSV block) since those are
    most prone to silent breakage.
 
@@ -105,12 +104,25 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     (`get_institutional_portfolio` in `tools.py:496`) feeds the
     EDGAR `reportDate` field, which is ISO `YYYY-MM-DD`.
 
-- [ ] **#6 — fed-calendar swallows layout drift.**
+- [x] **#6 — fed-calendar swallows layout drift.**
   `fed_calendar/fomc_scraper.py:137-152`. If federalreserve.gov
   reshapes the panels, the scraper logs a warning and returns
   `{"count": 0, "meetings": []}`. DEVELOPING.md is explicit: "Don't
   paper over with fuzzy fallbacks." Empty result needs to be a
   raise, not a warn.
+  - **Resolved:** every layout-drift path in `parse` / `_parse_row`
+    now raises `FomcScrapeError` with the original exception
+    chained where applicable. A panel whose heading no longer
+    yields a year, a meeting row missing the `__month` or `__date`
+    cell, and a malformed day/month combo (the previous
+    log-warn-and-return-`None` path) all surface as raises instead
+    of silent skips. Final defense: `parse` raises if the page
+    parsed cleanly but produced zero meetings, since the FOMC
+    calendar is never genuinely meeting-less. The unused module
+    logger was removed. The legitimate "(unscheduled)" /
+    parenthetical-only rows still skip — those are data, not
+    layout drift, and `_parse_row` distinguishes them via the
+    `_DATE_RE` "no `days` group" branch.
 
 ## HIGH
 

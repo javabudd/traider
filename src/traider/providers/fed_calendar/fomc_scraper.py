@@ -25,7 +25,6 @@ rate-limiting becomes a concern; for now each call refetches.
 """
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -33,8 +32,6 @@ from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup, Tag
-
-logger = logging.getLogger("traider.fed_calendar.fomc")
 
 _URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
 
@@ -144,11 +141,21 @@ class FomcScraper:
         for panel in panels:
             year = _year_from_panel(panel)
             if year is None:
-                continue
+                raise FomcScrapeError(
+                    "FOMC panel has no parseable year heading — "
+                    "federalreserve.gov layout may have changed; update "
+                    "the scraper"
+                )
             for row in panel.select("div.row.fomc-meeting"):
                 meeting = _parse_row(row, year)
                 if meeting is not None:
                     meetings.append(meeting)
+        if not meetings:
+            raise FomcScrapeError(
+                "FOMC calendar parsed zero meetings — "
+                "federalreserve.gov layout may have changed; update "
+                "the scraper"
+            )
         return meetings
 
     def scrape(self) -> list[Meeting]:
@@ -168,7 +175,11 @@ def _parse_row(row: Tag, year: int) -> Meeting | None:
     month_el = row.select_one("div.fomc-meeting__month")
     date_el = row.select_one("div.fomc-meeting__date")
     if month_el is None or date_el is None:
-        return None
+        raise FomcScrapeError(
+            "FOMC meeting row missing month or date cell — "
+            "federalreserve.gov layout may have changed; update the "
+            "scraper"
+        )
     month_text = month_el.get_text(" ", strip=True)
     date_text = date_el.get_text(" ", strip=True)
     m = _DATE_RE.match(date_text)
@@ -195,14 +206,11 @@ def _parse_row(row: Tag, year: int) -> Meeting | None:
             end_dt = date(year, end_month, end_day)
         else:
             end_dt = date(year, end_month, end_day)
-    except ValueError:
-        # Malformed day/month combo (e.g. Feb 30). Surface it instead of
-        # silently dropping — helps catch upstream markup drift.
-        logger.warning(
-            "FOMC row has invalid date: year=%d month=%r days=%r",
-            year, month_text, days,
-        )
-        return None
+    except ValueError as exc:
+        raise FomcScrapeError(
+            f"FOMC row has invalid date: year={year} "
+            f"month={month_text!r} days={days!r}"
+        ) from exc
 
     statement_url = None
     minutes_url = None
