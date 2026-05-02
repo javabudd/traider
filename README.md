@@ -129,6 +129,23 @@ traider --transport streamable-http --port 8765
 traider --transport stdio
 ```
 
+The HTTP transport binds to `127.0.0.1` by default — the tool surface is
+unauthenticated, so loopback-only is the safe default. DNS-rebinding
+protection is on, with `localhost` / `127.0.0.1` / `[::1]` at the
+configured port allowlisted automatically. To expose traider on a LAN
+or behind a reverse proxy, pass `--host 0.0.0.0` (or the specific
+interface) **and** an `--allow-host` for every external hostname
+clients will use, e.g.:
+
+```bash
+traider --host 0.0.0.0 --allow-host traider.lan:8765 \
+        --allow-origin http://traider.lan:8765
+```
+
+Without `--allow-host`, the middleware will 421 every request whose
+`Host:` header isn't a loopback name — that's the rebinding defense
+working as intended.
+
 ### 3. Connect your AI CLI
 
 The server exposes a single MCP endpoint. Register it once; the tools

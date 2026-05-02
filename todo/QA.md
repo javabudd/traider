@@ -141,7 +141,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
     keeps parity with the rest of the client (including the
     Windows-filesystem fallback comment).
 
-- [ ] **#8 — MCP server defaults: `0.0.0.0` + DNS-rebinding
+- [x] **#8 — MCP server defaults: `0.0.0.0` + DNS-rebinding
   protection disabled.** `server.py:55,115-116`. The combination
   exposes the unauthenticated tool surface to any host on the
   LAN/Wi-Fi and disables Host-header validation that mitigates
@@ -149,6 +149,23 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` resolved.
   does not warn about this. Either default `--host 127.0.0.1` (and
   document `0.0.0.0` for Docker), or re-enable rebinding protection,
   or both.
+  - **Resolved:** both. `--host` now defaults to `127.0.0.1`
+    (loopback only), and the explicit
+    `enable_dns_rebinding_protection=False` in `_build_mcp` is gone
+    — replaced by `_build_transport_security(...)`, which builds a
+    `TransportSecuritySettings` with protection on and `localhost`
+    / `127.0.0.1` / `[::1]` at the configured `--port` allowlisted
+    by default. `--allow-host` and `--allow-origin` (both
+    repeatable) extend the allowlists for LAN / reverse-proxy
+    deployments. The Dockerfile's `CMD` keeps `--host 0.0.0.0`
+    (it has to, to be reachable through the port forward), and the
+    same `localhost:8765` Host header still works because the
+    rebinding allowlist is parametrized on port, not bind address.
+    README's *On the host* section now documents both the new
+    default and the `--allow-host` / `--allow-origin` escape hatch
+    for non-localhost hostnames; without the extra flag the
+    middleware 421s every non-loopback Host header — the rebinding
+    defense behaving as intended.
 
 - [x] **#9 — Schwab `get_price_history` builds an invalid request
   when only one of `start_date` / `end_date` is set.**

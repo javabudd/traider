@@ -64,13 +64,34 @@ ALWAYS_LOADED_PROVIDERS: frozenset[str] = frozenset({"intent"})
 logger = logging.getLogger("traider")
 
 
-def _build_mcp() -> FastMCP:
-    return FastMCP(
-        "traider",
-        transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=False,
-        ),
+def _build_transport_security(
+    port: int,
+    extra_hosts: tuple[str, ...],
+    extra_origins: tuple[str, ...],
+) -> TransportSecuritySettings:
+    """Allowlist localhost variants at ``port`` plus operator-supplied extras.
+
+    The MCP transport-security middleware rejects any Host header not on
+    ``allowed_hosts`` when DNS-rebinding protection is enabled. Hard-coding
+    only ``localhost`` would break operators fronting traider with a reverse
+    proxy or exposing it on a LAN interface; ``--allow-host`` /
+    ``--allow-origin`` extend the allowlists for those cases.
+    """
+    base_hosts = [f"localhost:{port}", f"127.0.0.1:{port}", f"[::1]:{port}"]
+    base_origins = [
+        f"http://localhost:{port}",
+        f"http://127.0.0.1:{port}",
+        f"http://[::1]:{port}",
+    ]
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[*base_hosts, *extra_hosts],
+        allowed_origins=[*base_origins, *extra_origins],
     )
+
+
+def _build_mcp(transport_security: TransportSecuritySettings) -> FastMCP:
+    return FastMCP("traider", transport_security=transport_security)
 
 
 def _validate_providers(providers: tuple[str, ...]) -> None:
@@ -142,8 +163,39 @@ def main() -> None:
         choices=("stdio", "streamable-http", "sse"),
         default="streamable-http",
     )
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help=(
+            "Interface to bind the HTTP transport on. Defaults to 127.0.0.1 "
+            "(loopback only) — the unauthenticated tool surface is not safe "
+            "to expose on a LAN. Pass 0.0.0.0 explicitly when running inside "
+            "a container or behind a reverse proxy, and pair it with "
+            "--allow-host for any non-localhost hostname clients will use."
+        ),
+    )
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="HOST:PORT",
+        help=(
+            "Additional Host header value to accept (repeatable). "
+            "localhost / 127.0.0.1 / [::1] at --port are always allowed; "
+            "use this for proxy hostnames or LAN names clients will use."
+        ),
+    )
+    parser.add_argument(
+        "--allow-origin",
+        action="append",
+        default=[],
+        metavar="SCHEME://HOST:PORT",
+        help=(
+            "Additional Origin header value to accept (repeatable). "
+            "http://{localhost,127.0.0.1,[::1]}:--port are always allowed."
+        ),
+    )
     args = parser.parse_args()
 
     settings = load_settings()
@@ -160,7 +212,12 @@ def main() -> None:
 
     _validate_providers(settings.providers)
 
-    mcp = _build_mcp()
+    transport_security = _build_transport_security(
+        port=args.port,
+        extra_hosts=tuple(args.allow_host),
+        extra_origins=tuple(args.allow_origin),
+    )
+    mcp = _build_mcp(transport_security)
     load_providers(mcp, settings)
 
     if args.transport in ("streamable-http", "sse"):
