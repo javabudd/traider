@@ -219,6 +219,37 @@ traider --transport streamable-http --port 9000  # custom port
 
 `python -m traider` is equivalent to `traider`.
 
+### HTTPS (Claude Desktop)
+
+Claude Desktop's remote-MCP integration only connects to `https://`
+URLs, so for that client the server must terminate TLS. Pass a
+PEM cert + key to `traider`:
+
+```bash
+traider --ssl-certfile ./certs/traider.pem \
+        --ssl-keyfile  ./certs/traider-key.pem
+```
+
+Both flags must be supplied together; passing them with
+`--transport stdio` is rejected. When TLS is enabled the
+transport-security middleware swaps the default loopback
+allowlist from `http://localhost:PORT` to `https://localhost:PORT`
+(and the 127.0.0.1 / [::1] variants), so Claude Desktop's
+`Origin: https://...` header is accepted without an extra
+`--allow-origin`.
+
+For local dev, generate a cert that the OS trust store accepts —
+Claude Desktop validates the chain and will reject a raw
+self-signed cert. `mkcert` is the easy path:
+
+```bash
+mkcert -install
+mkcert -key-file certs/traider-key.pem -cert-file certs/traider.pem \
+       localhost 127.0.0.1 ::1
+```
+
+Then point Claude Desktop at `https://localhost:8765/mcp`.
+
 ### Docker
 
 `Dockerfile` + `docker-compose.yml` at the repo root build a single

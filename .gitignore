@@ -19,3 +19,6 @@ logs/
 
 # Per-user rule overrides — see rules/README.md
 rules.local/
+
+# Local TLS material for the streamable-http transport
+certs/

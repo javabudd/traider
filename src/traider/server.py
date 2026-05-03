@@ -68,6 +68,8 @@ def _build_transport_security(
     port: int,
     extra_hosts: tuple[str, ...],
     extra_origins: tuple[str, ...],
+    *,
+    tls: bool,
 ) -> TransportSecuritySettings:
     """Allowlist localhost variants at ``port`` plus operator-supplied extras.
 
@@ -76,12 +78,17 @@ def _build_transport_security(
     only ``localhost`` would break operators fronting traider with a reverse
     proxy or exposing it on a LAN interface; ``--allow-host`` /
     ``--allow-origin`` extend the allowlists for those cases.
+
+    When ``tls`` is true the HTTPS origin variants are added too — Claude
+    Desktop and other browsers send ``Origin: https://...`` once the server
+    is on TLS, and the middleware would otherwise reject them.
     """
     base_hosts = [f"localhost:{port}", f"127.0.0.1:{port}", f"[::1]:{port}"]
+    schemes = ("https",) if tls else ("http",)
     base_origins = [
-        f"http://localhost:{port}",
-        f"http://127.0.0.1:{port}",
-        f"http://[::1]:{port}",
+        f"{scheme}://{host}:{port}"
+        for scheme in schemes
+        for host in ("localhost", "127.0.0.1", "[::1]")
     ]
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
@@ -193,16 +200,41 @@ def main() -> None:
         metavar="SCHEME://HOST:PORT",
         help=(
             "Additional Origin header value to accept (repeatable). "
-            "http://{localhost,127.0.0.1,[::1]}:--port are always allowed."
+            "{http,https}://{localhost,127.0.0.1,[::1]}:--port are always "
+            "allowed (https when --ssl-certfile is set, http otherwise)."
         ),
     )
+    parser.add_argument(
+        "--ssl-certfile",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to a PEM-encoded TLS certificate. When set together with "
+            "--ssl-keyfile, the streamable-http / sse transport is served "
+            "over HTTPS. Required for Claude Desktop's remote-MCP "
+            "integration, which only connects to https:// URLs."
+        ),
+    )
+    parser.add_argument(
+        "--ssl-keyfile",
+        default=None,
+        metavar="PATH",
+        help="Path to the PEM-encoded private key paired with --ssl-certfile.",
+    )
     args = parser.parse_args()
+
+    if bool(args.ssl_certfile) != bool(args.ssl_keyfile):
+        parser.error("--ssl-certfile and --ssl-keyfile must be supplied together")
+    tls_enabled = bool(args.ssl_certfile)
+    if tls_enabled and args.transport == "stdio":
+        parser.error("--ssl-certfile / --ssl-keyfile only apply to HTTP transports")
 
     settings = load_settings()
     _configure_root_logging(settings.log_dir / "traider.log")
     logger.info(
-        "traider starting transport=%s host=%s port=%s providers=%s log_dir=%s",
-        args.transport, args.host, args.port, settings.providers, settings.log_dir,
+        "traider starting transport=%s host=%s port=%s tls=%s providers=%s log_dir=%s",
+        args.transport, args.host, args.port, tls_enabled,
+        settings.providers, settings.log_dir,
     )
 
     if not settings.providers:
@@ -216,6 +248,7 @@ def main() -> None:
         port=args.port,
         extra_hosts=tuple(args.allow_host),
         extra_origins=tuple(args.allow_origin),
+        tls=tls_enabled,
     )
     mcp = _build_mcp(transport_security)
     load_providers(mcp, settings)
@@ -224,7 +257,42 @@ def main() -> None:
         mcp.settings.host = args.host
         mcp.settings.port = args.port
 
-    mcp.run(transport=args.transport)
+    if tls_enabled:
+        _run_tls(mcp, args)
+    else:
+        mcp.run(transport=args.transport)
+
+
+def _run_tls(mcp: FastMCP, args: argparse.Namespace) -> None:
+    """Serve the streamable-http / sse Starlette app over HTTPS.
+
+    FastMCP's ``run()`` builds a uvicorn config that doesn't expose
+    ``ssl_certfile`` / ``ssl_keyfile``, so when the operator wants TLS
+    we bypass it: pull the same Starlette app FastMCP would have run
+    and hand it to uvicorn directly with the TLS settings attached.
+    Behavior for non-TLS startups is unchanged.
+    """
+    import asyncio
+
+    import uvicorn
+
+    if args.transport == "streamable-http":
+        app = mcp.streamable_http_app()
+    elif args.transport == "sse":
+        app = mcp.sse_app()
+    else:
+        raise SystemExit(
+            f"TLS not supported for transport={args.transport!r}"
+        )
+    config = uvicorn.Config(
+        app,
+        host=mcp.settings.host,
+        port=mcp.settings.port,
+        log_level=mcp.settings.log_level.lower(),
+        ssl_certfile=args.ssl_certfile,
+        ssl_keyfile=args.ssl_keyfile,
+    )
+    asyncio.run(uvicorn.Server(config).serve())
 
 
 if __name__ == "__main__":
